@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#1454a0"><title>ETEC • Login Administrador</title><link rel="stylesheet" href="/style.css"><script src="/admin.js" defer></script></head>
+<body data-page="login">
+<header class="topbar"><div class="wrap topinner"><div class="logo">🔐</div><div><strong>ETEC • Administração</strong><small>Acesso restrito do professor responsável</small></div></div></header>
+<main class="wrap narrow"><section class="hero"><h1>Login do administrador</h1><p>Entre para selecionar a pasta que será compartilhada com os alunos.</p></section>
+<section class="panel"><div class="pane"><h2>Identificação</h2><form id="adminLoginForm"><label for="username">Usuário</label><input id="username" name="username" value="admin" maxlength="80" autocomplete="username" required><label for="password">Senha de administrador</label><input id="password" name="password" type="password" maxlength="256" autocomplete="current-password" required><button id="loginButton" class="primary" type="submit">🔒 Entrar na administração</button></form><p class="hint">A senha é configurada nas variáveis de ambiente do Render. Não é a senha de administrador do Windows.</p><a class="back-link" href="/">Voltar para a área do aluno</a></div></section><div id="message" class="flash hidden" role="alert"></div></main>
+<footer class="wrap foot">Autenticação de administrador • HTTPS</footer>
+</body></html>

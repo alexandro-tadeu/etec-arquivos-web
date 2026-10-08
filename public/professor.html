@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#1454a0"><title>ETEC • Administração</title><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head>
+<body data-page="teacher">
+<header class="topbar"><div class="wrap topinner"><div class="logo">🔐</div><div><strong>ETEC • Administração</strong><small>Área exclusiva do administrador</small></div><button class="top-exit" type="button" id="logoutAdmin">Sair da administração</button></div></header>
+<main class="wrap">
+<section class="hero"><h1>Compartilhamento do professor</h1><p>Selecione a pasta física que deseja disponibilizar aos alunos. O navegador solicitará a autorização de leitura e gravação.</p></section>
+<div class="notice">A página do professor precisa permanecer aberta enquanto a turma utiliza os arquivos. Os dados transitam pelo serviço intermediário e não são armazenados permanentemente nele.</div>
+<section class="panel" id="startPanel"><div id="teacherStart" class="pane"><div class="stepbadge">1</div><h2>Selecione a pasta para compartilhar</h2><p>Somente as pastas autorizadas serão disponibilizadas. Escolha uma pasta específica da aula, sem documentos pessoais ou administrativos.</p><button class="primary" id="selectFolder" type="button">📂 Selecionar pasta e iniciar sala</button><p class="hint">Use Microsoft Edge ou Chrome; conexão HTTPS e permissão de acesso à pasta são necessárias.</p></div></section>
+<section id="teacherPanel" class="panel hidden"><div class="headline"><div><span class="dot online"></span><strong>Sala do professor ativa</strong><p class="muted" id="folderLabel">Pasta compartilhada</p></div><button class="danger-outline" type="button" id="stopShare">Encerrar compartilhamento</button></div>
+<div class="codes"><div><span>Código da sala</span><strong id="roomCode">—</strong><button id="copyCode" type="button" class="minor">Copiar</button></div><div><span>Senha dos alunos</span><strong id="roomPin">—</strong><button id="copyPin" type="button" class="minor">Copiar</button></div><div><span>Alunos conectados</span><strong id="studentCount">0</strong></div></div>
+<p class="hint">Envie aos alunos somente o endereço público, o código e a senha da sala. Nunca compartilhe a senha do administrador.</p>
+<div class="actions"><button id="copyInvite" type="button" class="secondary">📋 Copiar convite completo</button><button id="refreshTeacher" type="button" class="minor">Atualizar visualização</button></div>
+<div id="teacherPreview" class="preview"></div><div class="footerline">Arquivos enviados serão gravados na pasta autorizada, sem substituir nomes existentes.</div></section>
+<div id="message" class="flash hidden" role="alert"></div></main>
+<footer class="wrap foot">Área protegida • Acesso administrativo exclusivamente com login • HTTPS</footer>
+</body></html>
