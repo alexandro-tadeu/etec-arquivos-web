@@ -44,7 +44,9 @@ async def main():
             assert '/admin' in teacher.url
             await teacher.locator('#username').fill('admin')
             await teacher.locator('#password').fill('Teste!Admin!2026!Segura')
-            await teacher.get_by_role('button',name='Entrar na administração').click()
+            await teacher.get_by_role('button',name='Entrar no sistema').click()
+            await teacher.wait_for_url('**/gestao')
+            await teacher.get_by_role('link',name='Abrir minha sala de professor').click()
             await teacher.wait_for_url('**/professor')
             await teacher.get_by_role('button',name='Selecionar pasta e iniciar sala').click()
             await teacher.locator('#roomCode').wait_for()

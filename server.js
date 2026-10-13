@@ -5,6 +5,10 @@ const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const {promisify} = require('node:util');
+const scrypt = promisify(crypto.scrypt);
+const {createUserStore} = require('./user-store');
+const userStore=createUserStore();
 
 const PORT = Number(process.env.PORT || 3000);
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -19,33 +23,53 @@ const ROOM_EXPIRY_MS = 5 * 60 * 60 * 1000;
 const rooms = new Map();
 const sessions = new Map();
 const failures = new Map();
-// Autenticacao da administracao: senha definida SOMENTE nas variaveis do Render.
-const ADMIN_USER = process.env.ADMIN_USER || 'admin';
+// Administrador principal: senha por variavel do Render. Professores: PostgreSQL.
+const ADMIN_USER = (process.env.ADMIN_USER || 'admin').toLowerCase();
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
-const ADMIN_COOKIE = 'etec_admin';
-const ADMIN_TTL_MS = 8 * 60 * 60 * 1000;
-const ADMIN_LOCK_MS = 5 * 60 * 1000;
-const adminSessions = new Map();
+const LOGIN_COOKIE = 'etec_login';
+const LOGIN_TTL_MS = 8 * 60 * 60 * 1000;
+const LOGIN_LOCK_MS = 5 * 60 * 1000;
+const loginSessions = new Map();
 const loginFailures = new Map();
-
+const usernameRule=/^[a-z][a-z0-9._-]{2,39}$/;
+async function hashPassword(password,salt=crypto.randomBytes(16).toString('hex')) {
+  const raw=await scrypt(password,Buffer.from(salt,'hex'),64);
+  return {salt,password_hash:raw.toString('hex')};
+}
+async function verifyPassword(password,teacher) {
+  const raw=await scrypt(password,Buffer.from(teacher.salt,'hex'),64);
+  return crypto.timingSafeEqual(raw,Buffer.from(teacher.password_hash,'hex'));
+}
+function closeRoomsBySession(sid) {
+  for (const room of [...rooms.values()]) if(room.ownerSid===sid) finishRoom(room);
+}
+function invalidateTeacherSessions(id) {
+  for(const [sid,session] of loginSessions){
+    if(session.role==='teacher' && session.id===id){loginSessions.delete(sid);closeRoomsBySession(sid);}
+  }
+}
 const digits = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 function randomCode(size) { let result = ''; for (let i = 0; i < size; i++) result += digits[crypto.randomInt(digits.length)]; return result; }
 function token() { return crypto.randomBytes(32).toString('base64url'); }
-function adminCookie(value, req, maxAge) {
-  const secure = process.env.NODE_ENV === 'production' || req.headers['x-forwarded-proto'] === 'https';
-  return `${ADMIN_COOKIE}=${value}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}` + (secure ? '; Secure' : '');
+function loginCookie(value,req,maxAge) {
+  const secure=process.env.NODE_ENV==='production' || req.headers['x-forwarded-proto']==='https';
+  return `${LOGIN_COOKIE}=${value}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}` + (secure?'; Secure':'');
 }
-function getAdmin(req) {
-  const cookies = String(req.headers.cookie || '').split(';');
-  const found = cookies.map(x => x.trim()).find(x => x.startsWith(ADMIN_COOKIE + '='));
-  if (!found) return null;
-  const sid = found.slice(ADMIN_COOKIE.length + 1);
-  if (!/^[A-Za-z0-9_-]{40,100}$/.test(sid)) return null;
-  const admin = adminSessions.get(sid);
-  if (!admin) return null;
-  if (Date.now() > admin.expires) { adminSessions.delete(sid); return null; }
-  return admin;
+async function getPrincipal(req) {
+  const cookies=String(req.headers.cookie||'').split(';');
+  const found=cookies.map(x=>x.trim()).find(x=>x.startsWith(LOGIN_COOKIE+'='));
+  if(!found)return null;
+  const sid=found.slice(LOGIN_COOKIE.length+1);
+  if(!/^[A-Za-z0-9_-]{40,100}$/.test(sid))return null;
+  const session=loginSessions.get(sid);
+  if(!session)return null;
+  if(session.expires<Date.now()){loginSessions.delete(sid);closeRoomsBySession(sid);return null;}
+  if(session.role==='teacher'){
+    const record=await userStore.byId(session.id);
+    if(!record||!record.active||record.version!==session.version){loginSessions.delete(sid);closeRoomsBySession(sid);return null;}
+  }
+  return session;
 }
 function equalSecret(a,b) {
   const hashA = crypto.createHash('sha256').update(a).digest();
@@ -80,6 +104,7 @@ function enqueue(sess, evt) {
   if (sess.waiter) { const res=sess.waiter; sess.waiter=null; clearTimeout(sess.timer); sess.timer=null; sendJson(res,200,{events:sess.queue.splice(0)}); }
 }
 function makeSession(role, room) { const sess = {role,room,token:token(),id:token().slice(0,12),queue:[],waiter:null,timer:null,lastPoll:Date.now()}; sessions.set(sess.token, sess); return sess; }
+function roomOwner(room){return room.ownerId;}
 function isAlive(room) { return room && rooms.has(room.code) && Date.now() - room.teacher.lastPoll < TEACHER_GRACE_MS; }
 function cleanExpired() {
   const now = Date.now();
@@ -94,13 +119,10 @@ function cleanExpired() {
     }
   }
   for (const [key, state] of failures) if (now-state.since > 60000) failures.delete(key);
-  for (const [sid, admin] of adminSessions) {
-    if (admin.expires <= now) {
-      adminSessions.delete(sid);
-      for (const room of [...rooms.values()]) if (room.adminSid === sid) finishRoom(room);
-    }
+  for (const [sid, session] of loginSessions) {
+    if (session.expires <= now) {loginSessions.delete(sid);closeRoomsBySession(sid);}
   }
-  for (const [key, state] of loginFailures) if (now-state.since > ADMIN_LOCK_MS) loginFailures.delete(key);
+  for (const [key, state] of loginFailures) if (now-state.since > LOGIN_LOCK_MS) loginFailures.delete(key);
 }
 setInterval(cleanExpired,15000).unref();
 async function parseBody(req) {
@@ -116,7 +138,7 @@ async function parseBody(req) {
   catch { throw Object.assign(new Error('JSON invalido.'), {status:400}); }
 }
 function serveStatic(req, res, pathname) {
-  const files={'/':'index.html','/index.html':'index.html','/admin':'admin.html','/professor':'professor.html','/app.js':'app.js','/admin.js':'admin.js','/style.css':'style.css'};
+  const files={'/':'index.html','/index.html':'index.html','/admin':'admin.html','/professor':'professor.html','/gestao':'gestao.html','/gestao.js':'gestao.js','/app.js':'app.js','/admin.js':'admin.js','/style.css':'style.css'};
   const filename = files[pathname];
   if (!filename) return error(res,404,'Nao encontrado.');
   const type = filename.endsWith('.js') ? 'text/javascript; charset=utf-8' : filename.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/html; charset=utf-8';
@@ -126,38 +148,81 @@ function serveStatic(req, res, pathname) {
 async function api(req,res,pathname) {
   const body = await parseBody(req);
   if (pathname === '/api/admin/login') {
-    if (ADMIN_PASSWORD.length < 12) return error(res,503,'O administrador ainda nao foi configurado. Defina ADMIN_PASSWORD com pelo menos 12 caracteres no Render.');
-    const ip = String(req.socket.remoteAddress || 'unknown');
-    const now = Date.now();
-    const limit = loginFailures.get(ip) || {since:now,count:0};
-    if (now - limit.since > ADMIN_LOCK_MS) { limit.since=now; limit.count=0; }
-    if (limit.count >= 8) return error(res,429,'Muitas tentativas. Aguarde cinco minutos.');
-    const username = typeof body.username === 'string' ? body.username : '';
-    const password = typeof body.password === 'string' ? body.password : '';
-    const correct = username === ADMIN_USER && password.length <= 256 && equalSecret(password, ADMIN_PASSWORD);
-    if (!correct) {limit.count++;loginFailures.set(ip,limit);return error(res,401,'Usuario ou senha incorretos.');}
-    loginFailures.delete(ip);
-    const sid = token();
-    adminSessions.set(sid,{sid,expires:Date.now()+ADMIN_TTL_MS});
-    res.setHeader('set-cookie',adminCookie(sid,req,ADMIN_TTL_MS/1000));
-    return sendJson(res,200,{ok:true,next:'/professor'});
+    if (ADMIN_PASSWORD.length<12)return error(res,503,'Configure ADMIN_PASSWORD (12 ou mais caracteres) no Render.');
+    const username=String(body.username||'').trim().toLowerCase();
+    const password=String(body.password||'');
+    const ip=String(req.socket.remoteAddress||'unknown');
+    const key=ip+':'+username.slice(0,40);
+    const now=Date.now(); const limit=loginFailures.get(key)||{since:now,count:0};
+    if(now-limit.since>LOGIN_LOCK_MS){limit.since=now;limit.count=0;}
+    if(limit.count>=8)return error(res,429,'Muitas tentativas. Aguarde cinco minutos.');
+    let session=null;
+    if(password.length<=256 && username===ADMIN_USER && equalSecret(password,ADMIN_PASSWORD)){
+      session={sid:token(),role:'admin',id:'admin',name:'Administrador',expires:Date.now()+LOGIN_TTL_MS};
+    } else if(password.length<=256 && usernameRule.test(username) && username!==ADMIN_USER){
+      const teacher=await userStore.byUsername(username);
+      if(teacher && teacher.active && await verifyPassword(password,teacher)){
+        session={sid:token(),role:'teacher',id:teacher.id,name:teacher.name,version:teacher.version,expires:Date.now()+LOGIN_TTL_MS};
+      }
+    }
+    if(!session){limit.count++;loginFailures.set(key,limit);return error(res,401,'Usuario ou senha incorretos, ou conta desativada.');}
+    loginFailures.delete(key);loginSessions.set(session.sid,session);
+    res.setHeader('set-cookie',loginCookie(session.sid,req,LOGIN_TTL_MS/1000));
+    return sendJson(res,200,{ok:true,role:session.role,next:session.role==='admin'?'/gestao':'/professor'});
+  }
+  if(pathname==='/api/auth/me') {
+    const session=await getPrincipal(req);
+    if(!session)return error(res,401,'Entre com seu usuario e senha.');
+    return sendJson(res,200,{role:session.role,name:session.name,storage:userStore.mode});
   }
   if (pathname === '/api/admin/logout') {
-    const admin = getAdmin(req);
-    if (admin) {
-      adminSessions.delete(admin.sid);
-      for (const room of [...rooms.values()]) if (room.adminSid === admin.sid) finishRoom(room);
-    }
-    res.setHeader('set-cookie',adminCookie('',req,0));
+    const session=await getPrincipal(req);
+    if(session){loginSessions.delete(session.sid);closeRoomsBySession(session.sid);}
+    res.setHeader('set-cookie',loginCookie('',req,0));
     return sendJson(res,200,{ok:true});
   }
+  if(pathname.startsWith('/api/admin/teachers/')) {
+    const admin=await getPrincipal(req);
+    if(!admin||admin.role!=='admin')return error(res,403,'Apenas o administrador pode gerenciar professores.');
+    if(pathname==='/api/admin/teachers/list')return sendJson(res,200,{teachers:await userStore.list(),storage:userStore.mode});
+    if(pathname==='/api/admin/teachers/create'){
+      const username=String(body.username||'').trim().toLowerCase();
+      const name=String(body.name||'').trim();
+      const school=String(body.school||'').trim();
+      const password=String(body.password||'');
+      if(!usernameRule.test(username)||username===ADMIN_USER)return error(res,400,'Usuario invalido (3-40 caracteres, letras minusculas, numeros, ponto, _ ou -).');
+      if(name.length<3||name.length>80||school.length>100||password.length<12||password.length>128)return error(res,400,'Informe nome, unidade e senha de 12 a 128 caracteres.');
+      if(await userStore.byUsername(username))return error(res,409,'Usuario ja cadastrado.');
+      const hashed=await hashPassword(password);
+      try{const saved=await userStore.create({id:crypto.randomUUID(),username,name,school,...hashed});return sendJson(res,201,{teacher:saved});}
+      catch(err){if(err.code==='23505')return error(res,409,'Usuario ja cadastrado.');throw err;}
+    }
+    if(pathname==='/api/admin/teachers/status' || pathname==='/api/admin/teachers/reset'){
+      const id=String(body.id||'');
+      const teacher=await userStore.byId(id);
+      if(!teacher)return error(res,404,'Professor nao encontrado.');
+      let updated;
+      if(pathname.endsWith('/status')){
+        if(typeof body.active!=='boolean')return error(res,400,'Situacao invalida.');
+        updated=await userStore.setActive(id,body.active);
+      }else{
+        const password=String(body.password||'');
+        if(password.length<12||password.length>128)return error(res,400,'Senha deve ter de 12 a 128 caracteres.');
+        const hashed=await hashPassword(password);
+        updated=await userStore.setPassword(id,hashed.salt,hashed.password_hash);
+      }
+      invalidateTeacherSessions(id);
+      return sendJson(res,200,{teacher:updated});
+    }
+    return error(res,404,'Operacao administrativa nao encontrada.');
+  }
   if (pathname === '/api/create') {
-    const admin = getAdmin(req);
-    if (!admin) return error(res,403,'Apenas o administrador pode criar salas. Faca login em /admin.');
-    if (rooms.size >= MAX_ROOMS) return error(res,503,'Limite de salas simultaneas atingido.');
-    let code; do {code=randomCode(8)} while(rooms.has(code));
-    const room={code,pin:randomCode(16),created:Date.now(),teacher:null,adminSid:admin.sid,students:new Map(),inflight:new Map()};
-    const teacher=makeSession('teacher',room); teacher.adminSid=admin.sid; room.teacher=teacher; rooms.set(code,room);
+    const principal=await getPrincipal(req);
+    if(!principal)return error(res,403,'Entre como professor ou administrador em /admin.');
+    if(rooms.size >= MAX_ROOMS)return error(res,503,'Limite de salas simultaneas atingido.');
+    let code;do{code=randomCode(8)}while(rooms.has(code));
+    const room={code,pin:randomCode(16),created:Date.now(),teacher:null,ownerSid:principal.sid,ownerId:principal.id,students:new Map(),inflight:new Map()};
+    const teacher=makeSession('teacher',room);teacher.ownerSid=principal.sid;room.teacher=teacher;rooms.set(code,room);
     return sendJson(res,200,{code,pin:room.pin,token:teacher.token});
   }
   if (pathname === '/api/join') {
@@ -178,8 +243,8 @@ async function api(req,res,pathname) {
   const sess=sessions.get(body.token);
   if (!sess) return error(res,401,'Sessao expirada. Reabra o site.');
   if (sess.role === 'teacher') {
-    const admin = getAdmin(req);
-    if (!admin || admin.sid !== sess.adminSid) return error(res,403,'Login de administrador necessario. Entre novamente em /admin.');
+    const owner=await getPrincipal(req);
+    if(!owner||owner.sid!==sess.ownerSid||owner.id!==roomOwner(sess.room))return error(res,403,'Sessao do professor expirada ou sem permissao. Entre novamente.');
   }
   const room=sess.room;
   if (!rooms.has(room.code)) return error(res,410,'A sala foi encerrada.');
@@ -242,20 +307,33 @@ async function api(req,res,pathname) {
   return sendJson(res,200,{ok:true});
 }
 
-const server=http.createServer((req,res)=>{
+async function handleRequest(req,res) {
   const pathname=new URL(req.url,'http://localhost').pathname;
-  if(req.method==='GET' && pathname==='/healthz')return sendJson(res,200,{ok:true,rooms:rooms.size});
+  if(req.method==='GET'&&pathname==='/healthz')return sendJson(res,200,{ok:true,rooms:rooms.size,storage:userStore.mode});
   if(req.method==='GET') {
-    if (pathname==='/professor' && !getAdmin(req)) return redirect(res,'/admin');
-    if (pathname==='/admin' && getAdmin(req)) return redirect(res,'/professor');
+    if(pathname==='/professor' || pathname==='/gestao'){
+      const principal=await getPrincipal(req);
+      if(!principal)return redirect(res,'/admin');
+      if(pathname==='/gestao'&&principal.role!=='admin')return redirect(res,'/professor');
+    }
+    if(pathname==='/admin'){
+      const principal=await getPrincipal(req);
+      if(principal)return redirect(res,principal.role==='admin'?'/gestao':'/professor');
+    }
     return serveStatic(req,res,pathname);
   }
   if(req.method!=='POST'||!pathname.startsWith('/api/'))return error(res,404,'Nao encontrado.');
-  api(req,res,pathname).catch(err=>{console.error('API',err.message);if(!res.headersSent)error(res,err.status||500,err.status?err.message:'Falha ao processar solicitacao.');});
+  return api(req,res,pathname);
+}
+const server=http.createServer((req,res)=>{
+  handleRequest(req,res).catch(err=>{
+    console.error('ERRO',err.message);
+    if(!res.headersSent)error(res,err.status||500,err.status?err.message:'Falha no servidor. Verifique a configuracao de DATABASE_URL.');
+  });
 });
 server.requestTimeout=60000;
 server.listen(PORT,'0.0.0.0',()=>{
-  if (ADMIN_PASSWORD.length<12) console.warn('ATENCAO: Configure ADMIN_PASSWORD (12+ caracteres) nas variaveis de ambiente do Render antes de usar /admin.');
-  console.log(`ETEC WEB: servidor HTTP local em http://127.0.0.1:${PORT} - HTTPS fornecido pela hospedagem`);
+  if(ADMIN_PASSWORD.length<12)console.warn('Configure ADMIN_PASSWORD (12+ caracteres) nas variaveis de ambiente.');
+  if(userStore.mode==='unconfigured')console.warn('CADASTRO DE PROFESSORES BLOQUEADO: Configure DATABASE_URL com um PostgreSQL persistente.');
+  console.log(`ETEC Web multi-professor: http://127.0.0.1:${PORT} (HTTPS via Render, armazenamento: ${userStore.mode})`);
 });
-process.on('SIGTERM',()=>{for(const room of [...rooms.values()])finishRoom(room);server.close(()=>process.exit(0));});

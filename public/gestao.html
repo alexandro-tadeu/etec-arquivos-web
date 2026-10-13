@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ETEC • Gestão de professores</title><link rel="stylesheet" href="/style.css"><script src="/gestao.js" defer></script></head>
+<body><header class="topbar"><div class="wrap topinner"><div class="logo">🛡️</div><div><strong>ETEC • Gestão de professores</strong><small>Área exclusiva do administrador principal</small></div><button id="logout" class="top-exit" type="button">Sair da conta</button></div></header>
+<main class="wrap"><section class="hero"><h1>Gerenciar professores</h1><p>Cadastre docentes de diferentes ETECs. Cada professor terá login próprio e poderá compartilhar pastas físicas em salas exclusivas.</p><div class="inline-links"><a href="/professor">📁 Abrir minha sala de professor</a><a href="/">👥 Portal do aluno</a></div></section>
+<div id="storageNote" class="warn hidden" role="alert"></div>
+<section class="panel"><div class="pane"><h2>1. Cadastrar novo professor</h2><p>Escolha uma senha inicial forte e entregue as credenciais ao professor por um canal privado. O professor não recebe acesso à administração.</p>
+<form id="teacherForm"><div class="teacher-form-grid">
+<label>Nome completo<input id="name" maxlength="80" required placeholder="Nome do professor"></label>
+<label>Unidade ETEC<input id="school" maxlength="100" placeholder="Ex.: Etec Poá"></label>
+<label>Usuário de acesso<input id="username" maxlength="40" pattern="[a-z][a-z0-9._-]{2,39}" required placeholder="prof.maria" autocomplete="off"></label>
+<label>Senha inicial (12 ou mais caracteres)<input id="password" type="password" minlength="12" maxlength="128" required autocomplete="new-password"></label>
+<div class="full"><button class="primary" type="submit" id="addTeacher">Cadastrar professor</button></div>
+</div></form></div></section>
+<section class="panel"><div class="pane"><div class="headline" style="padding:0 0 14px"><h2>2. Professores cadastrados</h2><button class="minor" type="button" id="refresh">Atualizar</button></div>
+<div class="scrolltable"><table class="teachertable"><thead><tr><th>Professor</th><th>Usuário</th><th>ETEC</th><th>Situação</th><th>Ações</th></tr></thead><tbody id="teachers"><tr><td colspan="5">Carregando…</td></tr></tbody></table></div>
+<p class="hint">Desativar ou redefinir senha encerra imediatamente as sessões e as salas abertas daquele professor. Os cadastros ficam no banco de dados PostgreSQL.</p>
+</div></section><dialog id="resetDialog" class="reset-modal"><form method="dialog" id="resetForm"><h2 id="resetTitle">Redefinir senha</h2><p>Defina uma senha nova para o professor. Esta ação encerrará as salas e sessões atuais.</p><label for="newPassword">Nova senha (mínimo 12 caracteres)</label><input id="newPassword" type="password" minlength="12" maxlength="128" autocomplete="new-password" required><div class="management-actions"><button class="primary" type="submit" value="ok">Salvar nova senha</button><button class="minor" value="cancel" type="button" id="cancelReset">Cancelar</button></div></form></dialog><div id="message" class="flash hidden" role="alert"></div></main>
+<footer class="wrap foot">Administrador principal • Cadastro e controle de professores • Compartilhamentos temporários</footer></body></html>

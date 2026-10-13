@@ -305,8 +305,14 @@ async function studentEvent(evt){
   if(code && $('roomInput')){$('roomInput').value=code.trim().toUpperCase().slice(0,8);}
 })();
 
+if(document.body.dataset.page==='teacher') {
+  api('auth/me',{}).then(profile=>{
+    $('welcomeTeacher').textContent='Bem-vindo(a), '+profile.name;
+    if(profile.role==='admin')show('manageTeachersLink');
+  }).catch(()=>{location.replace('/admin');});
+}
 $('logoutAdmin')?.addEventListener('click', async()=>{
-  if(state.alive && !confirm('Sair da administração também encerrará sua sala ativa. Continuar?'))return;
+  if(state.alive && !confirm('Sair da conta também encerrará sua sala ativa. Continuar?'))return;
   state.alive=false;
   try {await api('admin/logout',{});} catch(e){flash('Erro ao sair: '+e.message,true);return;}
   location.replace('/admin');

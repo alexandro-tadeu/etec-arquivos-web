@@ -11,7 +11,7 @@ form.addEventListener('submit', async event=>{
     const result=await response.json();
     if(!response.ok)throw new Error(result.error||'Não foi possível autenticar.');
     document.getElementById('password').value='';
-    location.replace('/professor');
+    location.replace(result.next||'/professor');
   }catch(err){alert.textContent=err.message;alert.classList.add('bad');alert.classList.remove('hidden');}
   finally{button.disabled=false;}
 });

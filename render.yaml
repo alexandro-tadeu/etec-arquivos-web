@@ -1,9 +1,9 @@
 services:
   - type: web
-    name: etec-pastas-web
+    name: etec-arquivos-web
     runtime: node
     plan: free
-    buildCommand: echo "Projeto sem dependencias: pronto"
+    buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /healthz
     envVars:
@@ -13,3 +13,5 @@ services:
         sync: false
       - key: ADMIN_USER
         value: admin
+      - key: DATABASE_URL
+        sync: false

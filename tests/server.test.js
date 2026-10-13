@@ -3,6 +3,11 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {spawn} = require('node:child_process');
 const net = require('node:net');
+const os=require('node:os');
+const fs=require('node:fs');
+const path=require('node:path');
+const tmpdir=fs.mkdtempSync(path.join(os.tmpdir(),'etec-professores-'));
+const teachersFile=path.join(tmpdir,'usuarios.json');
 
 async function findPort(){return new Promise((resolve,reject)=>{const s=net.createServer();s.listen(0,'127.0.0.1',()=>{const port=s.address().port;s.close(()=>resolve(port));});s.once('error',reject);});}
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
@@ -26,11 +31,11 @@ async function receive(token,condition,limit=10000){
 }
 test.before(async()=>{
   const port=await findPort();base='http://127.0.0.1:'+port;
-  child=spawn(process.execPath,['server.js'],{cwd:__dirname+'/..',env:{...process.env,PORT:String(port),ADMIN_PASSWORD:TEST_PASSWORD,NODE_ENV:'test'},stdio:'pipe'});
+  child=spawn(process.execPath,['server.js'],{cwd:__dirname+'/..',env:{...process.env,PORT:String(port),ADMIN_PASSWORD:TEST_PASSWORD,NODE_ENV:'test',DATABASE_URL:'',TEACHERS_FILE:teachersFile},stdio:'pipe'});
   for(let i=0;i<35;i++) { try {const r=await fetch(base+'/healthz');if(r.ok)return;}catch{}await sleep(120); }
   throw Error('Servidor nao iniciou');
 });
-test.after(()=>{if(child)child.kill();});
+test.after(()=>{if(child)child.kill();fs.rmSync(tmpdir,{recursive:true,force:true});});
 
 test('site, sala, protecao, lista, download e upload em eventos intermediados',async()=>{
   const page=await fetch(base+'/');assert.equal(page.status,200);
@@ -112,4 +117,49 @@ test('logout invalida o acesso do professor e fecha uma sala ativa',async()=>{
   assert.equal((await post('poll',{token:student.body.token})).code,401);
   assert.equal((await post('join',{code:created.body.code,pin:created.body.pin})).code,401);
   assert.equal((await post('create',{})).code,403);
+});
+
+
+test('cadastro persistente, permissao de professor, duas salas isoladas e desativacao',async()=>{
+  const adminLogin=await post('admin/login',{username:'admin',password:TEST_PASSWORD});
+  assert.equal(adminLogin.code,200);const rootCookie=adminLogin.cookie.split(';')[0];
+  async function as(route,data,cookie){
+    const res=await fetch(base+'/api/'+route,{method:'POST',headers:{'content-type':'application/json',cookie},body:JSON.stringify(data)});
+    return {code:res.status,body:await res.json(),cookie:res.headers.get('set-cookie')};
+  }
+  assert.equal((await as('admin/teachers/list',{},'')).code,403);
+  assert.equal((await as('admin/teachers/create',{name:'Nao autorizado',username:'nao',password:'Senha1!Senha1!'},'')).code,403);
+  for (const [username,name] of [['prof.maria','Maria Silva'],['prof.jose','Jose Pereira']]) {
+    const created=await as('admin/teachers/create',{username,name,school:'Etec Poa',password:'Senha-Inicial!2026'},rootCookie);
+    assert.equal(created.code,201,JSON.stringify(created));
+    assert.equal(created.body.teacher.username,username);
+    assert.equal('password_hash' in created.body.teacher,false);
+  }
+  assert.equal((await as('admin/teachers/list',{},rootCookie)).body.teachers.length,2);
+  async function login(username){const obj=await as('admin/login',{username,password:'Senha-Inicial!2026'},'');assert.equal(obj.code,200);assert.equal(obj.body.next,'/professor');return obj.cookie.split(';')[0];}
+  const maria=await login('prof.maria'); const jose=await login('prof.jose');
+  assert.equal((await fetch(base+'/gestao',{headers:{cookie:maria},redirect:'manual'})).headers.get('location'),'/professor');
+  assert.equal((await as('admin/teachers/list',{},maria)).code,403);
+  assert.equal((await as('admin/teachers/create',{username:'terceiro',name:'Terceiro',password:'MaisUmaSenha2026'},maria)).code,403);
+  const salaM=await as('create',{},maria);const salaJ=await as('create',{},jose);
+  assert.equal(salaM.code,200);assert.equal(salaJ.code,200);
+  assert.notEqual(salaM.body.code,salaJ.body.code);
+  assert.equal((await as('poll',{token:salaM.body.token},jose)).code,403);
+  assert.equal((await as('close',{token:salaJ.body.token},maria)).code,403);
+  const alunoM=await as('join',{code:salaM.body.code,pin:salaM.body.pin},'');assert.equal(alunoM.code,200);
+  const alunoJ=await as('join',{code:salaJ.body.code,pin:salaJ.body.pin},'');assert.equal(alunoJ.code,200);
+  const list=(await as('admin/teachers/list',{},rootCookie)).body.teachers;
+  const mariaRow=list.find(t=>t.username==='prof.maria');
+  const inactive=await as('admin/teachers/status',{id:mariaRow.id,active:false},rootCookie);assert.equal(inactive.code,200);
+  assert.equal((await as('create',{},maria)).code,403);
+  assert.equal((await as('poll',{token:salaM.body.token},maria)).code,401);
+  assert.equal((await as('poll',{token:alunoM.body.token},'')).code,401);
+  assert.equal((await as('join',{code:salaM.body.code,pin:salaM.body.pin},'')).code,401);
+  assert.equal((await as('poll',{token:salaJ.body.token},jose)).code,200);
+  assert.equal((await as('admin/login',{username:'prof.maria',password:'Senha-Inicial!2026'},'')).code,401);
+  assert.equal((await as('admin/teachers/status',{id:mariaRow.id,active:true},rootCookie)).code,200);
+  const reset=await as('admin/teachers/reset',{id:mariaRow.id,password:'Nova-Senha-ETEC-2026'},rootCookie);assert.equal(reset.code,200);
+  assert.equal((await as('admin/login',{username:'prof.maria',password:'Senha-Inicial!2026'},'')).code,401);
+  assert.equal((await as('admin/login',{username:'prof.maria',password:'Nova-Senha-ETEC-2026'},'')).code,200);
+  await as('close',{token:salaJ.body.token},jose);
 });
