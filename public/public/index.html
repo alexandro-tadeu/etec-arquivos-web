@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#1454a0"><title>ETEC • Portal do Aluno</title><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head>
+<body data-page="student">
+<header class="topbar"><div class="wrap topinner"><div class="logo">📁</div><div><strong>ETEC • Arquivos da Aula</strong><small>Portal do aluno</small></div><span class="topright">Acesso pelo navegador</span></div></header>
+<main class="wrap">
+<section class="hero"><h1>Materiais e atividades da turma</h1><p>Entre com o código e a senha fornecidos pelo professor para navegar, baixar materiais e enviar suas atividades.</p></section>
+<div class="notice">Os arquivos estão disponíveis apenas enquanto a sala do professor estiver aberta. Use somente o código e a senha da sua turma.</div>
+<section class="panel" id="startPanel"><div id="studentStart" class="pane"><div class="stepbadge">1</div><h2>Entrar na sala de aula</h2><form id="joinForm"><label for="roomInput">Código da sala</label><input id="roomInput" required maxlength="8" autocomplete="off" placeholder="Ex.: 8KXH4M2P"><label for="pinInput">Senha da sala</label><input id="pinInput" required maxlength="16" autocomplete="off" placeholder="Senha recebida do professor"><button class="primary" type="submit">Acessar arquivos</button></form></div></section>
+<section id="studentPanel" class="panel hidden"><div class="headline"><div><span class="dot online"></span><strong>Conectado à sala</strong><p class="muted" id="studentRoom">—</p></div><button class="minor" id="leaveRoom" type="button">Sair</button></div>
+<div class="browserbar"><nav class="crumbs" id="breadcrumbs" aria-label="Pasta atual"></nav><button class="minor" id="refreshList" type="button">↻ Atualizar</button></div>
+<div class="uploadPanel"><label for="uploadFile" class="uploadLabel">Enviar atividade para a pasta atual</label><input id="uploadFile" type="file"><button id="uploadButton" class="primary small" type="button">⬆ Enviar arquivo</button><p class="hint">Limite de 40 MB por arquivo. Arquivos com o mesmo nome serão renomeados, sem substituição.</p></div>
+<div id="files" class="filelist" aria-live="polite">Conectando…</div>
+<div class="progress hidden" id="progress" role="status"><strong id="progressLabel">Transferindo…</strong><div class="track"><div id="progressBar"></div></div><span id="progressValue">0%</span></div>
+</section><div id="message" class="flash hidden" role="alert"></div></main>
+<footer class="wrap foot">Portal do aluno • Compartilhamento autorizado pelo professor • HTTPS</footer>
+</body></html>
