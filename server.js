@@ -143,6 +143,7 @@ function finishRoom(room,reason='ROOM_CLOSED') {
 }
 function enqueue(sess, evt) {
   if (!sess) return;
+  if(evt.type==='room_lease')sess.queue=sess.queue.filter(x=>x.type!=='room_lease');
   // Contagem de alunos e um estado, nao precisa acumular notificacoes antigas.
   if (evt.type === 'student_count') sess.queue = sess.queue.filter(e=>e.type !== 'student_count');
   if (sess.queue.length >= MAX_QUEUE) { sess.queue.length = 0; sess.queue.push({type:'error',message:'Conexao lenta. Atualize a pagina e tente novamente.'}); }
@@ -194,9 +195,7 @@ function cleanExpired() {
     if(now>=room.expiresAt){finishRoom(room,'TIME_LIMIT');continue;}
     // A sala permanece cadastrada em quedas breves, mas o prazo de 50 min e obrigatorio.
     for (const student of [...room.students.values()]) {
-      if(now>=student.expiresAt){
-        disconnectStudent(room,student,'TIME_LIMIT');
-      }else if(now-student.lastPoll > 85000) {
+      if(now-student.lastPoll > 85000) {
         // Horario estimado da desconexao: a aba nao confirmou o fechamento.
         disconnectStudent(room,student,'TIMEOUT');
       }
@@ -362,11 +361,11 @@ async function api(req,res,pathname) {
     const name=String(body.name||'').trim().replace(/\s+/g,' ');
     if(name.length<5||name.length>120||name.split(' ').length<2||!/^[\p{L}\p{M}]+(?:[ '\-][\p{L}\p{M}]+)*$/u.test(name))return error(res,400,'Informe seu nome completo (nome e sobrenome, apenas letras).');
     const student=makeSession('student',room);student.name=name;student.joinedAt=new Date().toISOString();
-    student.expiresAt=Math.min(Date.now()+SESSION_LEASE_MS,room.expiresAt);
+    student.expiresAt=room.expiresAt;
     room.students.set(student.id,student);
     roomAudit(room,'ENTRY',name,[], '',student.id);
     enqueue(room.teacher,{type:'student_count',count:room.students.size});
-    return sendJson(res,200,{token:student.token,studentId:student.id,name:student.name,expiresAt:new Date(student.expiresAt).toISOString(),roomExpiresAt:new Date(room.expiresAt).toISOString(),durationMinutes:50});
+    return sendJson(res,200,{token:student.token,studentId:student.id,name:student.name,expiresAt:new Date(room.expiresAt).toISOString(),roomExpiresAt:new Date(room.expiresAt).toISOString(),durationMinutes:50});
   }
   const sess=sessions.get(body.token);
   if (!sess) return error(res,401,'Sessao expirada. Reabra o site.');
@@ -380,20 +379,22 @@ async function api(req,res,pathname) {
     finishRoom(room,'TIME_LIMIT');
     return error(res,410,'Tempo da sala esgotado (50 minutos). Inicie nova sala.');
   }
-  if(sess.role==='student'&&Date.now()>=sess.expiresAt){
-    disconnectStudent(room,sess,'TIME_LIMIT');
-    return error(res,410,'Tempo da sessao do aluno esgotado. Entre novamente.');
-  }
+  // O vencimento da sala e compartilhado por professor e alunos.
   if(pathname === '/api/renew'){
     const now=Date.now();
     if(sess.role==='teacher'){
       room.expiresAt=now+SESSION_LEASE_MS;
       sess.expiresAt=room.expiresAt;
+      for(const student of room.students.values()){
+        student.expiresAt=room.expiresAt;
+        enqueue(student,{type:'room_lease',expiresAt:new Date(room.expiresAt).toISOString()});
+      }
     }else{
-      sess.expiresAt=Math.min(now+SESSION_LEASE_MS,room.expiresAt);
+      // O aluno acompanha a sala; ele nao tem renovacao individual.
+      return error(res,403,'Somente o professor pode renovar a sala.');
     }
     return sendJson(res,200,{
-      expiresAt:new Date(sess.expiresAt).toISOString(),
+      expiresAt:new Date(room.expiresAt).toISOString(),
       roomExpiresAt:new Date(room.expiresAt).toISOString(),
       durationMinutes:50
     });
@@ -413,9 +414,9 @@ async function api(req,res,pathname) {
       }
     }
     if (sess.waiter) {const old=sess.waiter;sess.waiter=null;clearTimeout(sess.timer);sendJson(old,200,{events:[]});}
-    if(sess.queue.length) return sendJson(res,200,{events:sess.queue.splice(0)});
+    if(sess.queue.length) return sendJson(res,200,{events:sess.queue.splice(0),roomExpiresAt:new Date(room.expiresAt).toISOString()});
     sess.waiter=res;
-    sess.timer=setTimeout(()=>{if(sess.waiter===res){sess.waiter=null;sess.timer=null;sendJson(res,200,{events:[]})}},POLL_MS);
+    sess.timer=setTimeout(()=>{if(sess.waiter===res){sess.waiter=null;sess.timer=null;sendJson(res,200,{events:[],roomExpiresAt:new Date(room.expiresAt).toISOString()})}},POLL_MS);
     req.on('close',()=>{if(sess.waiter===res && res.destroyed){clearTimeout(sess.timer);sess.waiter=null;sess.timer=null}});
     return;
   }
