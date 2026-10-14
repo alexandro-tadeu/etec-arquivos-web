@@ -28,7 +28,7 @@ function sameOrigin(req){
   const secure=process.env.NODE_ENV==='production'||req.socket.encrypted===true;
   return url.protocol===(secure?'https:':'http:')&&url.host.toLowerCase()===hostname;
 }
-function createV3Api({store,getPrincipal,now=()=>Date.now(),secureCookies=process.env.NODE_ENV==='production'}){
+function createV3Api({store,getPrincipal,submissionStore=null,now=()=>Date.now(),secureCookies=process.env.NODE_ENV==='production'}){
  if(!store||typeof store.authenticateStudent!=='function'||typeof getPrincipal!=='function')throw new Error('Dependencias v3 ausentes.');
  const failures=new Map();
  function loginGuard(req,roomCode){
@@ -61,6 +61,25 @@ function createV3Api({store,getPrincipal,now=()=>Date.now(),secureCookies=proces
    if(pathname==='/api/v3/student/me'&&req.method==='GET'){json(res,200,{student:await student(req)});return true;}
    if(pathname==='/api/v3/student/activities'&&req.method==='GET'){
     const s=await student(req);json(res,200,{activities:await store.listStudentActivities(s)});return true;
+   }
+   if(pathname==='/api/v3/student/submissions/begin'&&req.method==='POST'){
+    if(!submissionStore)throw error(503,'Modulo de entregas indisponivel.');
+    const actor=await student(req);
+    json(res,200,await submissionStore.begin({studentId:actor.studentId,roomId:actor.roomId,
+      activityId:data.activityId,requestKey:data.requestKey,files:data.files}));return true;
+   }
+   if(pathname==='/api/v3/teacher/submissions/plan'&&req.method==='POST'){
+    if(!submissionStore)throw error(503,'Modulo de entregas indisponivel.');
+    const teacherId=await teacher(req);
+    json(res,200,await submissionStore.teacherPlan({teacherId,submissionId:data.submissionId}));return true;
+   }
+   if(pathname==='/api/v3/teacher/submissions/commit'&&req.method==='POST'){
+    if(!submissionStore)throw error(503,'Modulo de entregas indisponivel.');
+    const teacherId=await teacher(req);
+    // A confirmacao so pode vir da sessao autenticada do professor, nunca do aluno.
+    // A integridade dos bytes gravados deve ser conferida pelo helper Edge.
+    json(res,200,await submissionStore.commit({teacherId,submissionId:data.submissionId,
+      evidence:data.evidence,edgeWriteVerified:true}));return true;
    }
    if(pathname==='/api/v3/student/receipts'&&req.method==='GET'){
     const s=await student(req);json(res,200,{receipts:await store.listStudentReceipts(s)});return true;
