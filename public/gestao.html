@@ -11,6 +11,7 @@
 <section class="panel"><div class="pane"><h2>Professores online e salas criadas</h2>
 <p class="hint">Online indica atividade recente; contagem total de salas registradas a partir desta atualização.</p>
 <button class="minor" id="refreshDashboard" type="button">Atualizar situação</button>
+<p class="hint" id="dashboardSyncedAt" aria-live="polite">Aguardando atualização…</p>
 <div class="scrolltable"><table class="teachertable"><thead><tr><th>Professor</th><th>Usuário</th><th>Status</th><th>Salas em andamento</th><th>Salas criadas (total)</th></tr></thead><tbody id="professorDashboard"><tr><td colspan="5">Carregando…</td></tr></tbody></table></div></div></section>
 <section class="panel"><div class="pane"><h2>1. Cadastrar novo professor</h2><p>Escolha uma senha inicial forte e entregue as credenciais ao professor por um canal privado. O professor não recebe acesso à administração.</p>
 <form id="teacherForm"><div class="teacher-form-grid">
@@ -27,6 +28,7 @@
 <section id="panelUsuarios" role="tabpanel" class="hidden">
 <section class="panel"><div class="pane"><div class="headline" style="padding:0 0 14px"><h2>Usuários — acessos às salas</h2><div class="management-actions"><button class="minor" id="refreshUsers" type="button">Atualizar</button><button class="secondary" id="exportUsers" type="button">Salvar CSV</button></div></div>
 <p class="hint">Entradas, saídas, status e arquivos recebidos, identificados pelo professor que criou cada sala. Histórico temporário das salas abertas.</p>
+<p class="hint" id="usersSyncedAt" aria-live="polite">Abra esta guia para consultar os acessos.</p>
 <div class="scrolltable"><table class="teachertable"><thead><tr><th>Professor</th><th>Sala</th><th>Aluno</th><th>Status</th><th>Registro</th><th>Entrada</th><th>Saída</th><th>Data / hora</th><th>Arquivo</th></tr></thead><tbody id="adminStudentEvents"><tr><td colspan="9">Nenhum registro.</td></tr></tbody></table></div></div></section></section>
 <dialog id="resetDialog" class="reset-modal"><form method="dialog" id="resetForm"><h2 id="resetTitle">Redefinir senha</h2><p>Defina uma senha nova para o professor. Esta ação encerrará as salas e sessões atuais.</p><label for="newPassword">Nova senha (mínimo 12 caracteres)</label><input id="newPassword" type="password" minlength="12" maxlength="128" autocomplete="new-password" required><div class="management-actions"><button class="primary" type="submit" value="ok">Salvar nova senha</button><button class="minor" value="cancel" type="button" id="cancelReset">Cancelar</button></div></form></dialog><div id="message" class="flash hidden" role="alert"></div></main>
 <footer class="wrap foot">Administrador principal • Cadastro e controle de professores • Compartilhamentos temporários</footer></body></html>

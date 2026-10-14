@@ -234,6 +234,27 @@ function serveStatic(req, res, pathname) {
   res.writeHead(200,{'content-type':type,'cache-control':'no-store','x-content-type-options':'nosniff','referrer-policy':'no-referrer','permissions-policy':'camera=(), microphone=(), geolocation=()', 'content-security-policy':"default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"});
   fs.createReadStream(path.join(PUBLIC_DIR,filename)).pipe(res);
 }
+// Uma unica leitura da tabela alimenta os cadastros e a situacao atual de cada professor.
+function summarizeTeachers(teachers){
+  const now=Date.now(),activeSessions=new Map(),activeRooms=new Map();
+  for(const session of loginSessions.values()){
+    if(session.role==='teacher'&&session.expires>now&&now-(session.lastSeen||0)<120000)
+      activeSessions.set(session.id,(activeSessions.get(session.id)||0)+1);
+  }
+  for(const room of rooms.values()){
+    if(room.expiresAt>now){
+      const existing=activeRooms.get(room.ownerId)||{count:0,connected:false};
+      existing.count++;
+      existing.connected ||= now-room.teacher.lastPoll<TEACHER_GRACE_MS;
+      activeRooms.set(room.ownerId,existing);
+    }
+  }
+  return teachers.map(t=>{
+    const sessionCount=activeSessions.get(t.id)||0;
+    const roomInfo=activeRooms.get(t.id)||{count:0,connected:false};
+    return {...t,online:sessionCount>0||roomInfo.connected,activeRooms:roomInfo.count,sessionsOnline:sessionCount};
+  });
+}
 async function api(req,res,pathname) {
   const body = await parseBody(req);
   if (pathname === '/api/admin/login') {
@@ -273,17 +294,9 @@ async function api(req,res,pathname) {
   if(pathname.startsWith('/api/admin/teachers/')) {
     const admin=await getPrincipal(req);
     if(!admin||admin.role!=='admin')return error(res,403,'Apenas o administrador pode gerenciar professores.');
-    if(pathname==='/api/admin/teachers/list')return sendJson(res,200,{teachers:await userStore.list(),storage:userStore.mode});
-    if(pathname==='/api/admin/teachers/dashboard'){
-      const teachers=await userStore.list(),now=Date.now();
-      const monitoring=teachers.map(t=>{
-        const liveSessions=[...loginSessions.values()].filter(x=>x.role==='teacher'&&x.id===t.id&&x.expires>now&&now-(x.lastSeen||0)<120000);
-        const ownRooms=[...rooms.values()].filter(r=>r.ownerId===t.id);
-        return {...t,online:liveSessions.length>0||ownRooms.some(r=>now-r.teacher.lastPoll<65000),
-          activeRooms:ownRooms.length,sessionsOnline:liveSessions.length,rooms:ownRooms.map(r=>({code:r.code,createdAt:new Date(r.created).toISOString(),expiresAt:new Date(r.expiresAt).toISOString(),students:r.students.size}))};
-      });
-      return sendJson(res,200,{teachers:monitoring,generatedAt:new Date().toISOString()});
-    }
+    if(pathname==='/api/admin/teachers/list')return sendJson(res,200,{teachers:summarizeTeachers(await userStore.list()),storage:userStore.mode});
+    if(pathname==='/api/admin/teachers/dashboard')
+      return sendJson(res,200,{teachers:summarizeTeachers(await userStore.list()),generatedAt:new Date().toISOString()});
     if(pathname==='/api/admin/teachers/users'){
       const all=[...rooms.values()].map(room=>{
         const teacher=loginSessions.get(room.ownerSid);
