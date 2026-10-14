@@ -1,14 +1,8 @@
 <!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ETEC • Gestão de professores</title><link rel="stylesheet" href="/style.css"><script src="/gestao.js" defer></script></head>
 <body><header class="topbar"><div class="wrap topinner"><div class="logo">🛡️</div><div><strong>ETEC • Gestão de professores</strong><small>Área exclusiva do administrador principal</small></div><button id="logout" class="top-exit" type="button">Sair da conta</button></div></header>
-<main class="wrap"><section class="hero"><h1>Gerenciar professores</h1><p>Cadastre docentes de diferentes ETECs. Cada professor terá login próprio e poderá compartilhar pastas físicas em salas exclusivas.</p><div class="inline-links"><a href="/entrar">📚 Entrar como professor (exige sair da conta administrativa)</a><a href="/professor">📚 Turmas e códigos individuais (acesso docente)</a><a href="/">👥 Portal do aluno</a></div></section>
-<section class="panel" aria-label="Gestão da versão 3.0"><div class="pane">
-<h2>ETEC Web 3.0 — Acesso aos recursos</h2>
-<p><strong>Administrador:</strong> cadastre e gerencie professores nesta página.</p>
-<p><strong>Professor:</strong> entre com sua conta docente para abrir o painel com Turmas, Alunos, Códigos Individuais, Atividades e Entregas.</p>
-<div class="actions"><button type="button" class="primary" id="switchToTeacher">🔑 Sair da administração e entrar como professor</button><a href="/" class="minor">Portal dos alunos</a></div>
-<p class="hint">O administrador não usa diretamente os códigos de alunos: eles pertencem às turmas e são gerados na área do professor.</p>
-</div></section><div id="storageNote" class="warn hidden" role="alert"></div>
+<main class="wrap"><section class="hero"><h1>Gerenciar professores</h1><p>Cadastre docentes de diferentes ETECs. Cada professor terá login próprio e poderá compartilhar pastas físicas em salas exclusivas.</p><div class="inline-links"><a href="/entrar">🔐 Entrar com outra conta</a><a href="/professor">📁 Sala do professor</a><a href="/">👥 Portal do aluno</a></div></section>
+<div class="notice">Modelo simplificado da v2: o administrador gerencia professores, e cada aluno informa nome completo ao entrar na sala. Não há cadastro individual de alunos.</div><div id="storageNote" class="warn hidden" role="alert"></div>
 <section class="panel"><div class="pane"><h2>1. Cadastrar novo professor</h2><p>Escolha uma senha inicial forte e entregue as credenciais ao professor por um canal privado. O professor não recebe acesso à administração.</p>
 <form id="teacherForm"><div class="teacher-form-grid">
 <label>Nome completo<input id="name" maxlength="80" required placeholder="Nome do professor"></label>

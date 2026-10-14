@@ -140,7 +140,17 @@ async function teacherEvent(evt){
       if(evt.op==='upload'){
         if(forbiddenUpload.test(evt.name))throw new Error('Por seguranca, este tipo de arquivo nao pode ser enviado.');
         if(!Number.isSafeInteger(evt.size)||evt.size>MAX_FILE||evt.size<0)throw new Error('Arquivo acima do limite permitido.');
-        const {candidate,mark}=await availableFilename(dir,evt.name,evt.path);
+        // Identificacao recebida do servidor; nunca confiar em um nome escrito no evento pelo aluno.
+        if(typeof evt.studentName!=='string'||evt.studentName.trim().split(/\s+/).length<2)throw new Error('Identificacao do aluno ausente.');
+        const timestamp=new Date();
+        const stamp=[timestamp.getFullYear(),String(timestamp.getMonth()+1).padStart(2,'0'),String(timestamp.getDate()).padStart(2,'0')].join('-')+'_'+[timestamp.getHours(),timestamp.getMinutes(),timestamp.getSeconds()].map(n=>String(n).padStart(2,'0')).join('-');
+        const dot=evt.name.lastIndexOf('.');
+        const stem=dot>0?evt.name.slice(0,dot):evt.name;
+        const extension=dot>0?evt.name.slice(dot):'';
+        const safeStudent=evt.studentName.normalize('NFC').replace(/[^\p{L}\p{M}0-9 -]/gu,'').trim().replace(/\s+/g,'_').slice(0,65);
+        const maxStem=Math.max(0,170-(safeStudent.length+stamp.length+extension.length+4));
+        const desired=safeStudent+'_'+stamp+'_'+stem.slice(0,maxStem)+extension;
+        const {candidate,mark}=await availableFilename(dir,desired,evt.path);
         try{
           const handle=await dir.getFileHandle(candidate,{create:true});
           const writer=await handle.createWritable({keepExistingData:false});
@@ -183,12 +193,12 @@ async function teacherEvent(evt){
 
 $('joinForm')?.addEventListener('submit',async(ev)=>{
   ev.preventDefault();clearFlash();
-  const code=$('roomInput').value.trim().toUpperCase();const pin=$('pinInput').value.trim().toUpperCase();
+  const code=$('roomInput').value.trim().toUpperCase();const pin=$('pinInput').value.trim().toUpperCase();const name=$('studentFullName').value.trim().replace(/\s+/g,' ');
   const button=$('joinForm').querySelector('button');button.disabled=true;
   try{
-    const result=await api('join',{code,pin});
+    const result=await api('join',{code,pin,name});
     state.role='student';state.token=result.token;state.room=code;state.alive=true;state.path=[];
-    hide('startPanel');show('studentPanel');$('studentRoom').textContent='Sala '+code;
+    hide('startPanel');show('studentPanel');$('studentRoom').textContent=result.name+' — Sala '+code;
     poll();await listFolder();
   }catch(err){flash(err.message,true);button.disabled=false;}
 });

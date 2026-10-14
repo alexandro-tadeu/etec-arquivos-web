@@ -61,11 +61,13 @@ test('site, sala, protecao, lista, download e upload em eventos intermediados',a
   assert.equal((await post('poll',{token:teacherToken},{anonymous:true})).code,403);
   assert.match(code,/^[A-Z2-9]{8}$/);assert.equal(pin.length,16);
   const wrong=await post('join',{code,pin:'SENHAERRADA'});assert.equal(wrong.code,401);
-  const joined=await post('join',{code,pin});assert.equal(joined.code,200);
+  assert.equal((await post('join',{code,pin})).code,400);
+  const joined=await post('join',{code,pin,name:'Aluno Teste'});assert.equal(joined.code,200);
   const studentToken=joined.body.token;
   const request={type:'request',id:'list-1',op:'list',path:[]};
   assert.equal((await post('send',{token:studentToken,message:request})).code,200);
   const ev=await receive(teacherToken,e=>e.type==='request');
+  assert.equal(ev.studentName,'Aluno Teste');
   assert.equal(ev.op,'list');assert.equal(ev.from,joined.body.studentId);
   assert.equal((await post('send',{token:teacherToken,message:{type:'answer',to:ev.from,id:ev.id,phase:'done',entries:[{name:'aula.pdf',kind:'file'}]}})).code,200);
   const list=await receive(studentToken,e=>e.type==='answer');
@@ -101,7 +103,7 @@ test('site, sala, protecao, lista, download e upload em eventos intermediados',a
   const forbidden=await post('send',{token:studentToken,message:{type:'request',id:'bad2',op:'upload',path:[],name:'aaa.txt',size:41943041}});
   assert.equal(forbidden.code,400);
   const closed=await post('close',{token:teacherToken});assert.equal(closed.code,200);
-  const after=await post('join',{code,pin});assert.equal(after.code,401);
+  const after=await post('join',{code,pin,name:'Aluno Teste'});assert.equal(after.code,401);
   const logout=await post('admin/logout',{});assert.equal(logout.code,200);
   assert.match(logout.cookie,/Max-Age=0/);
   assert.equal((await fetch(base+'/professor',{headers:{cookie:adminCookie},redirect:'manual'})).status,302);
@@ -114,7 +116,7 @@ test('logout invalida o acesso do professor e fecha uma sala ativa',async()=>{
   adminCookie=login.cookie.split(';')[0];
   const created=await post('create',{});assert.equal(created.code,200);
   teacherToken=created.body.token;
-  const student=await post('join',{code:created.body.code,pin:created.body.pin});
+  const student=await post('join',{code:created.body.code,pin:created.body.pin,name:'Aluno Exemplo'});
   assert.equal(student.code,200);
   const bye=await post('admin/logout',{});assert.equal(bye.code,200);
   assert.equal((await post('poll',{token:teacherToken})).code,401);
@@ -150,8 +152,8 @@ test('cadastro persistente, permissao de professor, duas salas isoladas e desati
   assert.notEqual(salaM.body.code,salaJ.body.code);
   assert.equal((await as('poll',{token:salaM.body.token},jose)).code,403);
   assert.equal((await as('close',{token:salaJ.body.token},maria)).code,403);
-  const alunoM=await as('join',{code:salaM.body.code,pin:salaM.body.pin},'');assert.equal(alunoM.code,200);
-  const alunoJ=await as('join',{code:salaJ.body.code,pin:salaJ.body.pin},'');assert.equal(alunoJ.code,200);
+  const alunoM=await as('join',{code:salaM.body.code,pin:salaM.body.pin,name:'Aluno Maria'},'');assert.equal(alunoM.code,200);
+  const alunoJ=await as('join',{code:salaJ.body.code,pin:salaJ.body.pin,name:'Aluno Jose'},'');assert.equal(alunoJ.code,200);
   const list=(await as('admin/teachers/list',{},rootCookie)).body.teachers;
   const mariaRow=list.find(t=>t.username==='prof.maria');
   const inactive=await as('admin/teachers/status',{id:mariaRow.id,active:false},rootCookie);assert.equal(inactive.code,200);

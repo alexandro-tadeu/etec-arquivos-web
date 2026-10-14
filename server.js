@@ -262,9 +262,11 @@ async function api(req,res,pathname) {
     const correct=room && incomingPin.length===room.pin.length && crypto.timingSafeEqual(Buffer.from(incomingPin), Buffer.from(room.pin));
     if (!correct || !isAlive(room)) {rate.count++;failures.set(ip,rate);return error(res,401,'Codigo ou senha incorretos, ou sala encerrada.');}
     if (room.students.size >= MAX_STUDENTS) return error(res,429,'A sala ja atingiu o limite de alunos.');
-    const student=makeSession('student',room);room.students.set(student.id,student);
+    const name=String(body.name||'').trim().replace(/\s+/g,' ');
+    if(name.length<5||name.length>120||name.split(' ').length<2||!/^[\p{L}\p{M}]+(?:[ '\-][\p{L}\p{M}]+)*$/u.test(name))return error(res,400,'Informe seu nome completo (nome e sobrenome, apenas letras).');
+    const student=makeSession('student',room);student.name=name;room.students.set(student.id,student);
     enqueue(room.teacher,{type:'student_count',count:room.students.size});
-    return sendJson(res,200,{token:student.token,studentId:student.id});
+    return sendJson(res,200,{token:student.token,studentId:student.id,name:student.name});
   }
   const sess=sessions.get(body.token);
   if (!sess) return error(res,401,'Sessao expirada. Reabra o site.');
@@ -303,7 +305,7 @@ async function api(req,res,pathname) {
       if(room.inflight.has(key))return error(res,409,'Solicitacao repetida.');
       if([...room.inflight.keys()].filter(k=>k.startsWith(sess.id+':')).length>=3)return error(res,429,'Aguarde a transferencia anterior.');
       room.inflight.set(key,{student:sess,op:msg.op,started:Date.now()});
-      enqueue(room.teacher,{...msg,from:sess.id});
+      enqueue(room.teacher,{...msg,from:sess.id,studentName:sess.name});
       return sendJson(res,200,{ok:true});
     }
     const state=room.inflight.get(key);
