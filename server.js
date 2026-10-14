@@ -10,6 +10,18 @@ const scrypt = promisify(crypto.scrypt);
 const {createUserStore} = require('./user-store');
 const userStore=createUserStore();
 
+// Academic API v3 is opt-in and MUST NOT be enabled in production until MFA is enforced.
+const V3_API_ENABLED=process.env.ETEC_V3_API_ENABLED==='true';
+let v3ApiRequest=null;
+if(V3_API_ENABLED){
+  if(!process.env.DATABASE_URL||!process.env.V3_STUDENT_CODE_HMAC_KEY)throw new Error('Missing v3 database/HMAC configuration.');
+  const {Pool}=require('pg');
+  const {createAcademicStore}=require('./v3/academic-store');
+  const {createV3Api}=require('./v3/api');
+  const pool=new Pool({connectionString:process.env.DATABASE_URL,max:5,connectionTimeoutMillis:12000,idleTimeoutMillis:30000});
+  v3ApiRequest=createV3Api({store:createAcademicStore({pool,hmacKey:process.env.V3_STUDENT_CODE_HMAC_KEY}),getPrincipal});
+}
+
 const PORT = Number(process.env.PORT || 3000);
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const MAX_BODY = 180 * 1024;
@@ -309,6 +321,10 @@ async function api(req,res,pathname) {
 
 async function handleRequest(req,res) {
   const pathname=new URL(req.url,'http://localhost').pathname;
+  if(pathname.startsWith('/api/v3/')){
+    if(!v3ApiRequest)return error(res,404,'Nao encontrado.');
+    return v3ApiRequest(req,res,pathname);
+  }
   if(req.method==='GET'&&pathname==='/healthz')return sendJson(res,200,{ok:true,rooms:rooms.size,storage:userStore.mode});
   if(req.method==='GET') {
     if(pathname==='/professor' || pathname==='/gestao'){
