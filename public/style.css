@@ -5,3 +5,16 @@
 .teacher-tools{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-top:20px;flex-wrap:wrap}.teacher-tools a{text-decoration:none;display:inline-block}.management-actions{display:flex;gap:10px;flex-wrap:wrap}.teachertable{width:100%;border-collapse:collapse;font-size:14px}.teachertable th,.teachertable td{border-bottom:1px solid #e4eaf1;text-align:left;padding:11px 8px;vertical-align:middle}.teachertable th{background:#f4f8fc}.teachertable button{margin:3px}.status-on{color:#177445;font-weight:700}.status-off{color:#ad2733;font-weight:700}.scrolltable{overflow-x:auto}.teacher-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.teacher-form-grid label{display:block}.teacher-form-grid input{max-width:100%}.teacher-form-grid .full{grid-column:1/-1}.inline-links{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.inline-links a{color:#125aa0}.warn{background:#fff7e7;border:1px solid #e5bf65;color:#634d13;padding:14px;border-radius:9px;margin:16px 0}@media(max-width:680px){.teacher-form-grid{grid-template-columns:1fr}}
 
 .reset-modal{border:1px solid #cbd6e2;border-radius:14px;max-width:440px;width:calc(100vw - 32px);padding:25px;box-shadow:0 12px 60px #122a3866}.reset-modal::backdrop{background:#09213a90}.reset-modal input{display:block;margin:10px 0 20px;width:100%;border:1px solid #bcd0e0;border-radius:8px;padding:12px}
+
+/* Registro simples de acessos no painel original do professor */
+.room-log{padding:22px;border-top:1px solid #e4eaf1;background:#fff}
+.room-log-head{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}
+.room-log-head h2{font-size:19px;margin:0 0 5px}
+.room-log-head p{margin:0;font-size:13px}
+.room-log-actions{display:flex;flex-wrap:wrap;gap:8px}
+.room-log-scroll{overflow-x:auto;max-height:420px;margin-top:15px}
+.room-log-table{width:100%;border-collapse:collapse;font-size:13px}
+.room-log-table th,.room-log-table td{padding:11px 12px;text-align:left;border-bottom:1px solid #e4eaf1;vertical-align:top}
+.room-log-table th{background:#f1f6fc;color:#294761;position:sticky;top:0}
+.room-log-table td:last-child{min-width:220px;overflow-wrap:anywhere}
+@media(max-width:620px){.room-log{padding:14px}.room-log-actions{width:100%}.room-log-actions button{flex:1}}

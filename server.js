@@ -39,6 +39,9 @@ const MAX_BODY = 180 * 1024;
 const MAX_FILE = 40 * 1024 * 1024;
 const MAX_ROOMS = 30;
 const MAX_STUDENTS = 45;
+// O historico desta sala fica apenas na memoria, como na v2.
+// O professor exporta o CSV enquanto a sala esta aberta.
+const MAX_ROOM_AUDIT_EVENTS = 5000;
 const MAX_QUEUE = 100;
 const POLL_MS = 23000;
 const TEACHER_GRACE_MS = 65000;
@@ -125,6 +128,20 @@ function enqueue(sess, evt) {
   if (sess.queue.length >= MAX_QUEUE) { sess.queue.length = 0; sess.queue.push({type:'error',message:'Conexao lenta. Atualize a pagina e tente novamente.'}); }
   else sess.queue.push(evt);
   if (sess.waiter) { const res=sess.waiter; sess.waiter=null; clearTimeout(sess.timer); sess.timer=null; sendJson(res,200,{events:sess.queue.splice(0)}); }
+}
+function roomAudit(room,kind,studentName,pathParts=[],filename='') {
+  if(!room.audit)room.audit={entries:[],dropped:0};
+  if(room.audit.entries.length >= MAX_ROOM_AUDIT_EVENTS) {
+    room.audit.entries.shift();
+    room.audit.dropped++;
+  }
+  room.audit.entries.push({
+    event:kind,
+    studentName,
+    at:new Date().toISOString(),
+    pathParts:[...pathParts],
+    filename
+  });
 }
 function makeSession(role, room) { const sess = {role,room,token:token(),id:token().slice(0,12),queue:[],waiter:null,timer:null,lastPoll:Date.now()}; sessions.set(sess.token, sess); return sess; }
 function roomOwner(room){return room.ownerId;}
@@ -247,7 +264,7 @@ async function api(req,res,pathname) {
     if(!principal)return error(res,403,'Entre como professor ou administrador em /admin.');
     if(rooms.size >= MAX_ROOMS)return error(res,503,'Limite de salas simultaneas atingido.');
     let code;do{code=randomCode(8)}while(rooms.has(code));
-    const room={code,pin:randomCode(16),created:Date.now(),teacher:null,ownerSid:principal.sid,ownerId:principal.id,students:new Map(),inflight:new Map()};
+    const room={code,pin:randomCode(16),created:Date.now(),teacher:null,ownerSid:principal.sid,ownerId:principal.id,students:new Map(),inflight:new Map(),audit:{entries:[],dropped:0}};
     const teacher=makeSession('teacher',room);teacher.ownerSid=principal.sid;room.teacher=teacher;rooms.set(code,room);
     return sendJson(res,200,{code,pin:room.pin,token:teacher.token});
   }
@@ -264,7 +281,9 @@ async function api(req,res,pathname) {
     if (room.students.size >= MAX_STUDENTS) return error(res,429,'A sala ja atingiu o limite de alunos.');
     const name=String(body.name||'').trim().replace(/\s+/g,' ');
     if(name.length<5||name.length>120||name.split(' ').length<2||!/^[\p{L}\p{M}]+(?:[ '\-][\p{L}\p{M}]+)*$/u.test(name))return error(res,400,'Informe seu nome completo (nome e sobrenome, apenas letras).');
-    const student=makeSession('student',room);student.name=name;room.students.set(student.id,student);
+    const student=makeSession('student',room);student.name=name;student.joinedAt=new Date().toISOString();
+    room.students.set(student.id,student);
+    roomAudit(room,'ENTRY',name);
     enqueue(room.teacher,{type:'student_count',count:room.students.size});
     return sendJson(res,200,{token:student.token,studentId:student.id,name:student.name});
   }
@@ -276,6 +295,16 @@ async function api(req,res,pathname) {
   }
   const room=sess.room;
   if (!rooms.has(room.code)) return error(res,410,'A sala foi encerrada.');
+  if (pathname === '/api/room-report') {
+    if(sess.role!=='teacher')return error(res,403,'Relatorio disponivel apenas ao professor responsavel.');
+    return sendJson(res,200,{
+      roomCode:room.code,
+      entries:room.audit.entries.slice(),
+      dropped:room.audit.dropped,
+      online:[...room.students.values()].map(s=>({studentName:s.name,joinedAt:s.joinedAt})),
+      generatedAt:new Date().toISOString()
+    });
+  }
   if (pathname === '/api/poll') {
     sess.lastPoll=Date.now();
     if (sess.waiter) {const old=sess.waiter;sess.waiter=null;clearTimeout(sess.timer);sendJson(old,200,{events:[]});}
@@ -304,7 +333,7 @@ async function api(req,res,pathname) {
       if(msg.op==='upload' && (!safeName(msg.name) || !Number.isSafeInteger(msg.size) || msg.size<0 || msg.size>MAX_FILE))return error(res,400,'Arquivo invalido ou acima de 40 MB.');
       if(room.inflight.has(key))return error(res,409,'Solicitacao repetida.');
       if([...room.inflight.keys()].filter(k=>k.startsWith(sess.id+':')).length>=3)return error(res,429,'Aguarde a transferencia anterior.');
-      room.inflight.set(key,{student:sess,op:msg.op,started:Date.now()});
+      room.inflight.set(key,{student:sess,op:msg.op,started:Date.now(),pathParts:[...(msg.path||[])]});
       enqueue(room.teacher,{...msg,from:sess.id,studentName:sess.name});
       return sendJson(res,200,{ok:true});
     }
@@ -330,6 +359,12 @@ async function api(req,res,pathname) {
   if(msg.type==='answer' && !['ready','done','error'].includes(msg.phase))return error(res,400,'Resposta invalida.');
   const allowed={type:msg.type,id:msg.id};
   for (const key of ['phase','name','size','savedName','message','data','entries']) if (Object.hasOwn(msg,key)) allowed[key]=msg[key];
+  // Registra apenas o upload concluido pelo navegador do professor.
+  // Nenhum caminho arbitrario fornecido pelo aluno vira registro de entrega.
+  if(msg.type==='answer' && msg.phase==='done' && state.op==='upload') {
+    if(!safeName(msg.savedName))return error(res,400,'Arquivo salvo sem nome valido.');
+    roomAudit(room,'UPLOAD',state.student.name,state.pathParts,msg.savedName);
+  }
   if(msg.type==='answer' && ['done','error'].includes(msg.phase)) room.inflight.delete(key);
   enqueue(target,allowed);
   return sendJson(res,200,{ok:true});

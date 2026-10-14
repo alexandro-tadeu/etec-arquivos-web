@@ -5,6 +5,7 @@ const MAX_FILE = 40 * 1024 * 1024;
 const CHUNK_BYTES = 48 * 1024;
 const $ = id => document.getElementById(id);
 const state = {role:null,token:null,alive:false,room:null,pin:null,dir:null,path:[],jobs:new Map(),activeUploads:new Map(),reserved:new Set(),studentCount:0};
+let latestRoomReport = null;
 let requestCounter = 0;
 let navigationSerial = 0;
 
@@ -60,6 +61,7 @@ $('selectFolder')?.addEventListener('click',async()=>{
     $('roomCode').textContent=room.code;$('roomPin').textContent=room.pin;
     $('folderLabel').textContent='Pasta local: '+handle.name;
     await previewTeacher();
+    await refreshRoomReport();
     poll();
   }catch(err){flash('Nao foi possivel iniciar: '+err.message,true);$('selectFolder').disabled=false;}
 });
@@ -82,13 +84,84 @@ async function previewTeacher(){
     if(items.length>12){const more=document.createElement('small');more.textContent=`Outros ${items.length-12} itens nao exibidos nesta visualizacao.`;preview.append(more);}
   }catch(e){flash('Pasta indisponivel: '+e.message,true);}
 }
-$('refreshTeacher')?.addEventListener('click',previewTeacher);
+$('refreshTeacher')?.addEventListener('click',async()=>{
+  await previewTeacher();
+  await refreshRoomReport();
+});
+const csvFormatTime = value => new Date(value).toLocaleString('pt-BR',{
+  timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit',day:'2-digit',
+  hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false
+});
+function auditRelativePath(record){
+  if(record.event!=='UPLOAD'||!record.filename)return '';
+  const base=state.dir?.name || 'Pasta autorizada';
+  return [base,...(record.pathParts||[]),record.filename].join('/');
+}
+function renderRoomReport(report){
+  const rows=$('roomAccessRows');if(!rows)return;
+  rows.replaceChildren();
+  const onlineNames=(report.online||[]).map(x=>x.studentName);
+  $('roomOnlineNames').textContent=onlineNames.length
+    ? 'Conectados agora ('+onlineNames.length+'): '+onlineNames.join(' • ')
+    : 'Nenhum aluno conectado agora.';
+  for(const entry of report.entries||[]){
+    const tr=document.createElement('tr');
+    const stamp=csvFormatTime(entry.at),parts=stamp.split(', ');
+    for(const value of [entry.studentName,
+      entry.event==='ENTRY'?'Entrada na sala':'Arquivo recebido',
+      parts[0]||'',parts[1]||'',auditRelativePath(entry)||'—']){
+      const cell=document.createElement('td');cell.textContent=value;tr.append(cell);
+    }
+    rows.append(tr);
+  }
+  if(!report.entries?.length){
+    const tr=document.createElement('tr'),td=document.createElement('td');
+    td.colSpan=5;td.textContent='Ainda nao ha acessos registrados.';
+    tr.append(td);rows.append(tr);
+  }
+  $('roomAuditNotice').textContent=
+   (report.dropped?'Atencao: '+report.dropped+' registros antigos excederam o limite temporario. ':'')+
+   'Exporte o CSV antes de encerrar a sala. O caminho e relativo a pasta autorizada; o navegador nao informa o caminho absoluto do Windows.';
+}
+async function refreshRoomReport(){
+  if(!state.alive||state.role!=='teacher'||!state.token)return;
+  const report=await api('room-report',{token:state.token});
+  latestRoomReport=report;
+  renderRoomReport(report);
+  return report;
+}
+function csvCell(value){
+  let v=String(value??'');
+  if(/^[\s]*[=+@\-\t\r]/u.test(v))v="'"+v;
+  return '"'+v.replace(/"/g,'""')+'"';
+}
+async function downloadRoomCsv(){
+  if(!state.alive||state.role!=='teacher')throw new Error('Abra sua sala primeiro.');
+  const report=await refreshRoomReport();
+  const header=['Nome completo','Registro','Data','Hora','Pasta / caminho do arquivo'];
+  const lines=[header.map(csvCell).join(';')];
+  for(const entry of report.entries||[]){
+    const [date='',time='']=csvFormatTime(entry.at).split(', ');
+    lines.push([entry.studentName,entry.event==='ENTRY'?'Entrada na sala':'Arquivo recebido',
+      date,time,auditRelativePath(entry)].map(csvCell).join(';'));
+  }
+  const csv='\uFEFF'+lines.join('\r\n')+'\r\n';
+  const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
+  const anchor=document.createElement('a');anchor.href=url;
+  anchor.download='etec_acessos_'+report.roomCode+'_'+new Date().toISOString().slice(0,10)+'.csv';
+  document.body.append(anchor);anchor.click();anchor.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),10000);
+  flash('Lista CSV preparada. Salve o arquivo para manter o historico.');
+}
+$('refreshRoomReport')?.addEventListener('click',()=>refreshRoomReport().catch(e=>flash(e.message,true)));
+$('downloadRoomCsv')?.addEventListener('click',()=>downloadRoomCsv().catch(e=>flash(e.message,true)));
 async function copyText(s){try{await navigator.clipboard.writeText(s);flash('Copiado para a area de transferencia.');}catch{flash('Nao foi possivel copiar automaticamente. Selecione e copie o texto exibido.');}}
 $('copyCode')?.addEventListener('click',()=>copyText(state.room||''));
 $('copyPin')?.addEventListener('click',()=>copyText(state.pin||''));
 $('copyInvite')?.addEventListener('click',()=>copyText(`Acesse os arquivos da aula: ${location.origin}/?s=${state.room}\nCodigo da sala: ${state.room}\nSenha: ${state.pin}\nMantenha estes dados apenas com a turma.`));
 $('stopShare')?.addEventListener('click',async()=>{
-  if(!confirm('Encerrar a sala? Os alunos perderao acesso aos arquivos.'))return;
+  if(!confirm('Encerrar a sala? A lista de acessos sera baixada em CSV antes do encerramento.'))return;
+  try{await downloadRoomCsv();}catch(e){flash('Nao foi possivel salvar o historico: '+e.message,true);return;}
   const old=state.token;state.alive=false;state.token=null;
   if(old)try{await api('close',{token:old});}catch{}
   location.href=location.pathname;
@@ -111,7 +184,8 @@ const teacherJobs=new Map();
 function jobKey(from,id){return from+'|'+id;}
 async function reply(to,id,phase,extra={}){await send({type:'answer',to,id,phase,...extra});}
 async function teacherEvent(evt){
-  if(evt.type==='student_count'){$('studentCount').textContent=String(evt.count);return;}
+  if(evt.type==='student_count'){$('studentCount').textContent=String(evt.count);
+    refreshRoomReport().catch(e=>flash('Nao foi possivel atualizar acessos: '+e.message,true));return;}
   if(evt.type==='closed'){flash(evt.message,true);state.alive=false;return;}
   if(!evt.from||!evt.id)return;
   const key=jobKey(evt.from,evt.id);
@@ -175,7 +249,9 @@ async function teacherEvent(evt){
     if(evt.type==='finish'&&job.kind==='upload'){
       if(job.received!==job.size)throw new Error('Arquivo incompleto. Envio cancelado.');
       await job.writer.close();state.reserved.delete(job.mark);teacherJobs.delete(key);
-      await reply(evt.from,evt.id,'done',{savedName:job.candidate});return;
+      await reply(evt.from,evt.id,'done',{savedName:job.candidate});
+      refreshRoomReport().catch(()=>{});
+      return;
     }
     if(evt.type==='pull'&&job.kind==='download'){
       if(job.offset>=job.file.size){teacherJobs.delete(key);await reply(evt.from,evt.id,'done');return;}

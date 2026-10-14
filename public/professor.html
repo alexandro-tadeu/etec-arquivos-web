@@ -13,7 +13,23 @@
 <div class="codes"><div><span>Código da sala</span><strong id="roomCode">—</strong><button id="copyCode" type="button" class="minor">Copiar</button></div><div><span>Senha dos alunos</span><strong id="roomPin">—</strong><button id="copyPin" type="button" class="minor">Copiar</button></div><div><span>Alunos conectados</span><strong id="studentCount">0</strong></div></div>
 <p class="hint">Envie aos alunos somente o endereço público, o código e a senha da sala. Nunca compartilhe a senha do administrador.</p>
 <div class="actions"><button id="copyInvite" type="button" class="secondary">📋 Copiar convite completo</button><button id="refreshTeacher" type="button" class="minor">Atualizar visualização</button></div>
-<div id="teacherPreview" class="preview"></div><div class="footerline">Arquivos enviados serão gravados na pasta autorizada, sem substituir nomes existentes.</div></section>
+<div id="teacherPreview" class="preview"></div>
+<section class="room-log" aria-label="Historico dos alunos" id="roomAuditSection">
+  <div class="room-log-head">
+    <div><h2>Alunos que acessaram a sala</h2>
+    <p class="muted">Nome informado pelo aluno, horario de acesso e entregas gravadas na pasta selecionada.</p></div>
+    <div class="room-log-actions"><button id="refreshRoomReport" type="button" class="minor">↻ Atualizar lista</button>
+    <button id="downloadRoomCsv" type="button" class="secondary">⬇ Salvar lista CSV</button></div>
+  </div>
+  <p id="roomOnlineNames" class="hint" aria-live="polite">Nenhum aluno conectado.</p>
+  <div class="scrolltable room-log-scroll">
+    <table class="teachertable room-log-table">
+      <thead><tr><th>Nome completo</th><th>Registro</th><th>Data</th><th>Hora</th><th>Pasta / caminho do arquivo</th></tr></thead>
+      <tbody id="roomAccessRows"><tr><td colspan="5">Ainda nao ha acessos registrados.</td></tr></tbody>
+    </table>
+  </div>
+  <p id="roomAuditNotice" class="hint">Este historico fica disponivel enquanto a sala estiver aberta. Exporte o CSV antes de encerrar. O caminho exibido e relativo a pasta autorizada, pois o navegador nao fornece o caminho absoluto do Windows.</p>
+</section><div class="footerline">Arquivos enviados serão gravados na pasta autorizada, sem substituir nomes existentes.</div></section>
 <div id="message" class="flash hidden" role="alert"></div></main>
 <footer class="wrap foot">Acesso individual de professores • HTTPS</footer>
 </body></html>
