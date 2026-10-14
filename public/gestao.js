@@ -65,5 +65,9 @@ $('teacherForm').addEventListener('submit',async e=>{
   catch(err){flash(err.message,true);}finally{$('addTeacher').disabled=false;}
 });
 $('refresh').addEventListener('click',()=>refresh().catch(e=>flash(e.message,true)));
+$('switchToTeacher').addEventListener('click',async()=>{
+ try{await post('admin/logout');location.replace('/admin');}
+ catch(e){flash(e.message,true);}
+});
 $('logout').addEventListener('click',async()=>{try{await post('admin/logout');location.replace('/admin');}catch(e){flash(e.message,true);}});
 refresh().catch(e=>flash(e.message,true));

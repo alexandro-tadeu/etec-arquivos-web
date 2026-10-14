@@ -161,7 +161,7 @@ async function parseBody(req) {
   catch { throw Object.assign(new Error('JSON invalido.'), {status:400}); }
 }
 function serveStatic(req, res, pathname) {
-  const files={'/':'index.html','/index.html':'index.html','/admin':'admin.html','/professor':'professor.html','/gestao':'gestao.html','/gestao.js':'gestao.js','/app.js':'app.js','/admin.js':'admin.js','/style.css':'style.css'};
+  const files={'/':'index.html','/index.html':'index.html','/admin':'admin.html','/professor':'professor.html','/compartilhar':'professor.html','/gestao':'gestao.html','/gestao.js':'gestao.js','/app.js':'app.js','/admin.js':'admin.js','/style.css':'style.css'};
   if(V3_API_ENABLED){
     files['/atividades']='atividades.html';files['/atividades.js']='atividades.js';files['/edge-storage.js']='edge-storage.js';
   }
@@ -341,10 +341,15 @@ async function handleRequest(req,res) {
   }
   if(req.method==='GET'&&pathname==='/healthz')return sendJson(res,200,{ok:true,rooms:rooms.size,storage:userStore.mode,v3Enabled:V3_API_ENABLED});
   if(req.method==='GET') {
-    if(pathname==='/professor' || pathname==='/gestao'){
+    if(pathname==='/professor' || pathname==='/compartilhar' || pathname==='/gestao'){
       const principal=await getPrincipal(req);
       if(!principal)return redirect(res,'/admin');
       if(pathname==='/gestao'&&principal.role!=='admin')return redirect(res,'/professor');
+      // A entrada principal do docente e a gestao v3.
+      // O compartilhamento temporario v2 fica disponivel em /compartilhar.
+      if(pathname==='/professor'&&V3_API_ENABLED){
+        return redirect(res,principal.role==='admin'?'/gestao':'/atividades');
+      }
     }
     if(pathname==='/admin'){
       const principal=await getPrincipal(req);
