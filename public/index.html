@@ -9,6 +9,10 @@
 <div class="notice">Os arquivos estão disponíveis apenas enquanto a sala do professor estiver aberta. Use somente o código e a senha da sua turma.</div>
 <section class="panel" id="startPanel"><div id="studentStart" class="pane"><div class="stepbadge">1</div><h2>Entrar na sala de aula</h2><form id="joinForm"><label for="studentFullName">Nome completo do aluno</label><input id="studentFullName" required minlength="5" maxlength="120" autocomplete="name" placeholder="Nome e sobrenome"><label for="roomInput">Código da sala</label><input id="roomInput" required maxlength="8" autocomplete="off" placeholder="Ex.: 8KXH4M2P"><label for="pinInput">Senha da sala</label><input id="pinInput" required maxlength="16" autocomplete="off" placeholder="Senha recebida do professor"><button class="primary" type="submit">Acessar arquivos</button></form></div></section>
 <section id="studentPanel" class="panel hidden"><div class="headline"><div><span class="dot online"></span><strong>Conectado à sala</strong><p class="muted" id="studentRoom">—</p></div><button class="minor" id="leaveRoom" type="button">Sair</button></div>
+<section class="session-lease" id="studentSessionLease" aria-label="Tempo restante da sessão">
+  <div><strong>Cronômetro: <span id="studentCountdown" role="timer">50:00</span></strong><p id="studentCountdownHint">Renove antes de terminar. A sessão não pode ultrapassar o prazo da sala do professor.</p></div>
+  <button id="renewStudentSession" type="button" class="secondary">Renovar sessão</button>
+</section>
 <div class="browserbar"><nav class="crumbs" id="breadcrumbs" aria-label="Pasta atual"></nav><button class="minor" id="refreshList" type="button">↻ Atualizar</button></div>
 <div class="uploadPanel"><label for="uploadFile" class="uploadLabel">Enviar atividade para a pasta atual</label><input id="uploadFile" type="file"><button id="uploadButton" class="primary small" type="button">⬆ Enviar arquivo</button><p class="hint">Limite de 40 MB. O arquivo será identificado pelo nome do aluno, data e hora; a extensão original será preservada.</p></div>
 <div id="files" class="filelist" aria-live="polite">Conectando…</div>
