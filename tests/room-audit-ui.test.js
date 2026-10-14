@@ -17,8 +17,8 @@ test('teacher has room access table and button to save real CSV',()=>{
 test('access and upload events only returned to authenticated teacher',()=>{
  assert.match(srv,/pathname === '\/api\/room-report'/);
  assert.match(srv,/sess\.role!=='teacher'/);
- assert.match(srv,/roomAudit\(room,'ENTRY',name\)/);
- assert.match(srv,/roomAudit\(room,'UPLOAD',state\.student\.name,state\.pathParts,msg\.savedName\)/);
+ assert.match(srv,/roomAudit\(room,'ENTRY',name,\[\], '',student\.id\)/);
+ assert.match(srv,/roomAudit\(room,'UPLOAD',state\.student\.name,state\.pathParts,msg\.savedName,state\.student\.id\)/);
 });
 test('report shows relative path, not inaccessible Windows absolute location',()=>{
  assert.match(js,/state\.dir\?\.name/);

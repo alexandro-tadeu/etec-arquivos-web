@@ -72,6 +72,8 @@ test('site, sala, protecao, lista, download e upload em eventos intermediados',a
   assert.equal(accesses.body.entries.length,1);
   assert.equal(accesses.body.entries[0].event,'ENTRY');
   assert.equal(accesses.body.entries[0].studentName,'Aluno Teste');
+  assert.equal(accesses.body.visits[0].status,'ONLINE');
+  assert.equal(accesses.body.visits[0].leftAt,null);
   const request={type:'request',id:'list-1',op:'list',path:[]};
   assert.equal((await post('send',{token:studentToken,message:request})).code,200);
   const ev=await receive(teacherToken,e=>e.type==='request');
@@ -116,12 +118,16 @@ test('site, sala, protecao, lista, download e upload em eventos intermediados',a
   assert.equal(uploadLog.studentName,'Aluno Teste');
   assert.deepEqual(uploadLog.pathParts,['Trabalhos']);
   assert.equal(uploadLog.filename,'entrega.txt');
+  assert.equal(uploadLog.studentId,joined.body.studentId);
   assert.ok(!isNaN(Date.parse(uploadLog.at)));
   const badReport=await post('room-report',{token:'bogus'});
   assert.equal(badReport.code,401);
   const forbidden=await post('send',{token:studentToken,message:{type:'request',id:'bad2',op:'upload',path:[],name:'aaa.txt',size:41943041}});
   assert.equal(forbidden.code,400);
   const closed=await post('close',{token:teacherToken});assert.equal(closed.code,200);
+  assert.equal(closed.body.report.visits[0].status,'OFFLINE');
+  assert.equal(closed.body.report.visits[0].reason,'ROOM_CLOSED');
+  assert.ok(!isNaN(Date.parse(closed.body.report.visits[0].leftAt)));
   const after=await post('join',{code,pin,name:'Aluno Teste'});assert.equal(after.code,401);
   const logout=await post('admin/logout',{});assert.equal(logout.code,200);
   assert.match(logout.cookie,/Max-Age=0/);

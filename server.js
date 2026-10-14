@@ -39,9 +39,8 @@ const MAX_BODY = 180 * 1024;
 const MAX_FILE = 40 * 1024 * 1024;
 const MAX_ROOMS = 30;
 const MAX_STUDENTS = 45;
-// O historico desta sala fica apenas na memoria, como na v2.
-// O professor exporta o CSV enquanto a sala esta aberta.
-const MAX_ROOM_AUDIT_EVENTS = 5000;
+// Cada entrada e saida recebe um registro; nao ha limite numerico predefinido.
+// Dados temporarios em memoria: o professor deve exportar o CSV da sala.
 const MAX_QUEUE = 100;
 const POLL_MS = 23000;
 const TEACHER_GRACE_MS = 65000;
@@ -113,6 +112,9 @@ function safeName(s) { return typeof s === 'string' && s.length > 0 && s.length 
 function cleanupSession(sess) { if (!sess) return; if (sess.timer) clearTimeout(sess.timer); sess.timer=null; if (sess.waiter && !sess.waiter.writableEnded) sendJson(sess.waiter, 200, {events:[]}); sess.waiter=null; sessions.delete(sess.token); }
 function finishRoom(room) {
   if (!rooms.has(room.code)) return;
+  for(const student of room.students.values()){
+    roomAudit(room,'EXIT',student.name,[], '',student.id,'ROOM_CLOSED');
+  }
   rooms.delete(room.code);
   for (const sess of [room.teacher, ...room.students.values()]) {
     if (!sess) continue;
@@ -129,19 +131,39 @@ function enqueue(sess, evt) {
   else sess.queue.push(evt);
   if (sess.waiter) { const res=sess.waiter; sess.waiter=null; clearTimeout(sess.timer); sess.timer=null; sendJson(res,200,{events:sess.queue.splice(0)}); }
 }
-function roomAudit(room,kind,studentName,pathParts=[],filename='') {
-  if(!room.audit)room.audit={entries:[],dropped:0};
-  if(room.audit.entries.length >= MAX_ROOM_AUDIT_EVENTS) {
-    room.audit.entries.shift();
-    room.audit.dropped++;
+function roomAudit(room,kind,studentName,pathParts=[],filename='',studentId='',reason='') {
+  const at=new Date().toISOString();
+  const event={event:kind,studentName,studentId,at,pathParts:[...pathParts],filename,reason};
+  room.audit.entries.push(event);
+  if(kind==='ENTRY'){
+    room.audit.visits.push({studentId,studentName,joinedAt:at,leftAt:null,reason:''});
+  }else if(kind==='EXIT'){
+    const visit=room.audit.visits.findLast(v=>v.studentId===studentId);
+    if(visit&&!visit.leftAt){visit.leftAt=at;visit.reason=reason;}
   }
-  room.audit.entries.push({
-    event:kind,
-    studentName,
-    at:new Date().toISOString(),
-    pathParts:[...pathParts],
-    filename
-  });
+}
+function roomReport(room){
+  return {
+    roomCode:room.code,
+    entries:room.audit.entries.map(x=>({...x})),
+    visits:room.audit.visits.map(x=>({...x,status:x.leftAt?'OFFLINE':'ONLINE'})),
+    online:[...room.students.values()].filter(x=>!room.audit.visits.findLast(v=>v.studentId===x.id)?.leftAt)
+      .map(x=>({studentId:x.id,studentName:x.name,joinedAt:x.joinedAt})),
+    generatedAt:new Date().toISOString()
+  };
+}
+function disconnectStudent(room,student,reason){
+  if(!room.students.has(student.id))return;
+  roomAudit(room,'EXIT',student.name,[], '',student.id,reason);
+  room.students.delete(student.id);
+  for(const [key,op] of room.inflight){
+    if(op.student===student){
+      room.inflight.delete(key);
+      enqueue(room.teacher,{type:'cancel',from:student.id,id:key.split(':').at(-1)});
+    }
+  }
+  cleanupSession(student);
+  enqueue(room.teacher,{type:'student_count',count:room.students.size});
 }
 function makeSession(role, room) { const sess = {role,room,token:token(),id:token().slice(0,12),queue:[],waiter:null,timer:null,lastPoll:Date.now()}; sessions.set(sess.token, sess); return sess; }
 function roomOwner(room){return room.ownerId;}
@@ -152,9 +174,8 @@ function cleanExpired() {
     if (now-room.created > ROOM_EXPIRY_MS || now-room.teacher.lastPoll > TEACHER_GRACE_MS) {finishRoom(room);continue;}
     for (const student of [...room.students.values()]) {
       if(now-student.lastPoll > 85000) {
-        room.students.delete(student.id);
-        for (const [key,op] of room.inflight) if(op.student===student) {room.inflight.delete(key);enqueue(room.teacher,{type:'cancel',from:student.id,id:key.split(':').at(-1)});}
-        cleanupSession(student);enqueue(room.teacher,{type:'student_count',count:room.students.size});
+        // Horario estimado da desconexao: a aba nao confirmou o fechamento.
+        disconnectStudent(room,student,'TIMEOUT');
       }
     }
   }
@@ -264,7 +285,7 @@ async function api(req,res,pathname) {
     if(!principal)return error(res,403,'Entre como professor ou administrador em /admin.');
     if(rooms.size >= MAX_ROOMS)return error(res,503,'Limite de salas simultaneas atingido.');
     let code;do{code=randomCode(8)}while(rooms.has(code));
-    const room={code,pin:randomCode(16),created:Date.now(),teacher:null,ownerSid:principal.sid,ownerId:principal.id,students:new Map(),inflight:new Map(),audit:{entries:[],dropped:0}};
+    const room={code,pin:randomCode(16),created:Date.now(),teacher:null,ownerSid:principal.sid,ownerId:principal.id,students:new Map(),inflight:new Map(),audit:{entries:[],visits:[]}};
     const teacher=makeSession('teacher',room);teacher.ownerSid=principal.sid;room.teacher=teacher;rooms.set(code,room);
     return sendJson(res,200,{code,pin:room.pin,token:teacher.token});
   }
@@ -283,7 +304,7 @@ async function api(req,res,pathname) {
     if(name.length<5||name.length>120||name.split(' ').length<2||!/^[\p{L}\p{M}]+(?:[ '\-][\p{L}\p{M}]+)*$/u.test(name))return error(res,400,'Informe seu nome completo (nome e sobrenome, apenas letras).');
     const student=makeSession('student',room);student.name=name;student.joinedAt=new Date().toISOString();
     room.students.set(student.id,student);
-    roomAudit(room,'ENTRY',name);
+    roomAudit(room,'ENTRY',name,[], '',student.id);
     enqueue(room.teacher,{type:'student_count',count:room.students.size});
     return sendJson(res,200,{token:student.token,studentId:student.id,name:student.name});
   }
@@ -297,13 +318,7 @@ async function api(req,res,pathname) {
   if (!rooms.has(room.code)) return error(res,410,'A sala foi encerrada.');
   if (pathname === '/api/room-report') {
     if(sess.role!=='teacher')return error(res,403,'Relatorio disponivel apenas ao professor responsavel.');
-    return sendJson(res,200,{
-      roomCode:room.code,
-      entries:room.audit.entries.slice(),
-      dropped:room.audit.dropped,
-      online:[...room.students.values()].map(s=>({studentName:s.name,joinedAt:s.joinedAt})),
-      generatedAt:new Date().toISOString()
-    });
+    return sendJson(res,200,roomReport(room));
   }
   if (pathname === '/api/poll') {
     sess.lastPoll=Date.now();
@@ -315,8 +330,11 @@ async function api(req,res,pathname) {
     return;
   }
   if (pathname === '/api/close') {
-    if (sess.role === 'teacher') finishRoom(room);
-    else {room.students.delete(sess.id);for (const [key,op] of room.inflight) {if(op.student===sess){room.inflight.delete(key);enqueue(room.teacher,{type:'cancel',from:sess.id,id:key.split(':').at(-1)});}}cleanupSession(sess);enqueue(room.teacher,{type:'student_count',count:room.students.size});}
+    if (sess.role === 'teacher'){
+      finishRoom(room);
+      return sendJson(res,200,{ok:true,report:roomReport(room)});
+    }
+    disconnectStudent(room,sess,body.reason==='PAGE_CLOSED'?'PAGE_CLOSED':'LEFT');
     return sendJson(res,200,{ok:true});
   }
   if (pathname !== '/api/send') return error(res,404,'Operacao desconhecida.');
@@ -363,7 +381,7 @@ async function api(req,res,pathname) {
   // Nenhum caminho arbitrario fornecido pelo aluno vira registro de entrega.
   if(msg.type==='answer' && msg.phase==='done' && state.op==='upload') {
     if(!safeName(msg.savedName))return error(res,400,'Arquivo salvo sem nome valido.');
-    roomAudit(room,'UPLOAD',state.student.name,state.pathParts,msg.savedName);
+    roomAudit(room,'UPLOAD',state.student.name,state.pathParts,msg.savedName,state.student.id);
   }
   if(msg.type==='answer' && ['done','error'].includes(msg.phase)) room.inflight.delete(key);
   enqueue(target,allowed);

@@ -2,6 +2,19 @@
 // Toda a operacao no computador do professor usa a File System Access API.
 // Nenhuma pasta e enviada integralmente ao servidor intermediario.
 const MAX_FILE = 40 * 1024 * 1024;
+// Ao fechar ou navegar para outra pagina, tenta registrar a saída imediatamente.
+// Se o navegador não conseguir comunicar, o servidor marcará timeout após inatividade.
+window.addEventListener('pagehide',()=>{
+  if(state.role!=='student'||!state.alive||!state.token)return;
+  const payload=JSON.stringify({token:state.token,reason:'PAGE_CLOSED'});
+  try{
+    const blob=new Blob([payload],{type:'application/json'});
+    if(!navigator.sendBeacon?.('/api/close',blob)){
+      fetch('/api/close',{method:'POST',body:payload,keepalive:true,
+        headers:{'content-type':'application/json'}}).catch(()=>{});
+    }
+  }catch{}
+});
 const CHUNK_BYTES = 48 * 1024;
 const $ = id => document.getElementById(id);
 const state = {role:null,token:null,alive:false,room:null,pin:null,dir:null,path:[],jobs:new Map(),activeUploads:new Map(),reserved:new Set(),studentCount:0};
@@ -97,6 +110,31 @@ function auditRelativePath(record){
   const base=state.dir?.name || 'Pasta autorizada';
   return [base,...(record.pathParts||[]),record.filename].join('/');
 }
+function auditEventLabel(entry){
+  return entry.event==='ENTRY'?'Entrada na sala':
+    entry.event==='EXIT'?'Saída da sala':'Arquivo recebido';
+}
+function exitReasonText(reason){
+  return reason==='PAGE_CLOSED'?'Aba fechada/navegação':
+    reason==='TIMEOUT'?'Sem conexão (horário estimado)':
+    reason==='ROOM_CLOSED'?'Sala encerrada':
+    reason==='LEFT'?'Saiu pelo botão':'';
+}
+function roomCsvRows(report){
+  const visits=new Map((report.visits||[]).map(v=>[v.studentId,v]));
+  return (report.entries||[]).map(entry=>{
+    const visit=visits.get(entry.studentId);
+    const [day='',hour='']=csvFormatTime(entry.at).split(', ');
+    return [
+      entry.studentName,visit?.status==='ONLINE'?'Online':'Offline',
+      auditEventLabel(entry),
+      visit?.joinedAt?csvFormatTime(visit.joinedAt):'',
+      visit?.leftAt?csvFormatTime(visit.leftAt):'',
+      day,hour,exitReasonText(entry.reason||visit?.reason),
+      auditRelativePath(entry)
+    ];
+  });
+}
 function renderRoomReport(report){
   const rows=$('roomAccessRows');if(!rows)return;
   rows.replaceChildren();
@@ -104,24 +142,25 @@ function renderRoomReport(report){
   $('roomOnlineNames').textContent=onlineNames.length
     ? 'Conectados agora ('+onlineNames.length+'): '+onlineNames.join(' • ')
     : 'Nenhum aluno conectado agora.';
-  for(const entry of report.entries||[]){
+  $('roomAccessCount').textContent='Acessos registrados: '+(report.visits||[]).length+
+    ' • Entradas e saídas podem se repetir sem limite de quantidade.';
+  for(const values of roomCsvRows(report)){
     const tr=document.createElement('tr');
-    const stamp=csvFormatTime(entry.at),parts=stamp.split(', ');
-    for(const value of [entry.studentName,
-      entry.event==='ENTRY'?'Entrada na sala':'Arquivo recebido',
-      parts[0]||'',parts[1]||'',auditRelativePath(entry)||'—']){
-      const cell=document.createElement('td');cell.textContent=value;tr.append(cell);
+    for(const value of values){
+      const cell=document.createElement('td');cell.textContent=value||'—';tr.append(cell);
     }
     rows.append(tr);
   }
   if(!report.entries?.length){
     const tr=document.createElement('tr'),td=document.createElement('td');
-    td.colSpan=5;td.textContent='Ainda nao ha acessos registrados.';
+    td.colSpan=9;td.textContent='Ainda nao ha acessos registrados.';
     tr.append(td);rows.append(tr);
   }
   $('roomAuditNotice').textContent=
-   (report.dropped?'Atencao: '+report.dropped+' registros antigos excederam o limite temporario. ':'')+
-   'Exporte o CSV antes de encerrar a sala. O caminho e relativo a pasta autorizada; o navegador nao informa o caminho absoluto do Windows.';
+    'A lista guarda todas as entradas e saídas desta sala enquanto ela permanecer aberta. '+
+    'Ao fechar a aba, o horário pode ser estimado após inatividade. '+
+    'Exporte o CSV: o histórico não persiste após reiniciar o servidor. '+
+    'O caminho é relativo à pasta autorizada.';
 }
 async function refreshRoomReport(){
   if(!state.alive||state.role!=='teacher'||!state.token)return;
@@ -135,16 +174,11 @@ function csvCell(value){
   if(/^[\s]*[=+@\-\t\r]/u.test(v))v="'"+v;
   return '"'+v.replace(/"/g,'""')+'"';
 }
-async function downloadRoomCsv(){
-  if(!state.alive||state.role!=='teacher')throw new Error('Abra sua sala primeiro.');
-  const report=await refreshRoomReport();
-  const header=['Nome completo','Registro','Data','Hora','Pasta / caminho do arquivo'];
+function saveReportCsv(report){
+  const header=['Nome completo','Status','Registro','Entrada (São Paulo)','Saída (São Paulo)',
+    'Data do registro','Hora do registro','Motivo da saída','Pasta / caminho do arquivo'];
   const lines=[header.map(csvCell).join(';')];
-  for(const entry of report.entries||[]){
-    const [date='',time='']=csvFormatTime(entry.at).split(', ');
-    lines.push([entry.studentName,entry.event==='ENTRY'?'Entrada na sala':'Arquivo recebido',
-      date,time,auditRelativePath(entry)].map(csvCell).join(';'));
-  }
+  for(const values of roomCsvRows(report))lines.push(values.map(csvCell).join(';'));
   const csv='\uFEFF'+lines.join('\r\n')+'\r\n';
   const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
   const anchor=document.createElement('a');anchor.href=url;
@@ -153,6 +187,10 @@ async function downloadRoomCsv(){
   setTimeout(()=>URL.revokeObjectURL(url),10000);
   flash('Lista CSV preparada. Salve o arquivo para manter o historico.');
 }
+async function downloadRoomCsv(){
+  if(!state.alive||state.role!=='teacher')throw new Error('Abra sua sala primeiro.');
+  saveReportCsv(await refreshRoomReport());
+}
 $('refreshRoomReport')?.addEventListener('click',()=>refreshRoomReport().catch(e=>flash(e.message,true)));
 $('downloadRoomCsv')?.addEventListener('click',()=>downloadRoomCsv().catch(e=>flash(e.message,true)));
 async function copyText(s){try{await navigator.clipboard.writeText(s);flash('Copiado para a area de transferencia.');}catch{flash('Nao foi possivel copiar automaticamente. Selecione e copie o texto exibido.');}}
@@ -160,11 +198,14 @@ $('copyCode')?.addEventListener('click',()=>copyText(state.room||''));
 $('copyPin')?.addEventListener('click',()=>copyText(state.pin||''));
 $('copyInvite')?.addEventListener('click',()=>copyText(`Acesse os arquivos da aula: ${location.origin}/?s=${state.room}\nCodigo da sala: ${state.room}\nSenha: ${state.pin}\nMantenha estes dados apenas com a turma.`));
 $('stopShare')?.addEventListener('click',async()=>{
-  if(!confirm('Encerrar a sala? A lista de acessos sera baixada em CSV antes do encerramento.'))return;
-  try{await downloadRoomCsv();}catch(e){flash('Nao foi possivel salvar o historico: '+e.message,true);return;}
-  const old=state.token;state.alive=false;state.token=null;
-  if(old)try{await api('close',{token:old});}catch{}
-  location.href=location.pathname;
+  if(!confirm('Encerrar a sala? O CSV incluirá a saída dos alunos conectados.'))return;
+  try{
+    const result=await api('close',{token:state.token});
+    state.alive=false;state.token=null;
+    saveReportCsv(result.report);
+    location.href=location.pathname;
+  }catch(e){flash('Não foi possível concluir o encerramento ou exportar a lista: '+e.message,true);}
+
 });
 
 const forbiddenUpload=/\.(exe|msi|bat|cmd|ps1|scr|vbs|lnk)$/i;
@@ -280,7 +321,7 @@ $('joinForm')?.addEventListener('submit',async(ev)=>{
 });
 $('leaveRoom')?.addEventListener('click',async()=>{
   const old=state.token;state.alive=false;state.token=null;
-  try{await api('close',{token:old})}catch{}
+  try{await api('close',{token:old,reason:'LEFT'})}catch{}
   location.href=location.pathname;
 });
 function beginRequest(op,extra={}){
