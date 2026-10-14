@@ -111,6 +111,7 @@ async function getPrincipal(req) {
     const record=await userStore.byId(session.id);
     if(!record||!record.active||record.version!==session.version){loginSessions.delete(sid);closeRoomsBySession(sid);return null;}
   }
+  if(session.role==='teacher')session.lastSeen=Date.now();
   return session;
 }
 function equalSecret(a,b) {
@@ -162,6 +163,7 @@ function roomAudit(room,kind,studentName,pathParts=[],filename='',studentId='',r
 function roomReport(room){
   return {
     roomCode:room.code,
+    teacherName:room.ownerName||'Professor',
     entries:room.audit.entries.map(x=>({...x})),
     visits:room.audit.visits.map(x=>({...x,status:x.leftAt?'OFFLINE':'ONLINE'})),
     online:[...room.students.values()].filter(x=>!room.audit.visits.findLast(v=>v.studentId===x.id)?.leftAt)
@@ -249,7 +251,7 @@ async function api(req,res,pathname) {
     } else if(password.length<=256 && usernameRule.test(username) && username!==ADMIN_USER){
       const teacher=await userStore.byUsername(username);
       if(teacher && teacher.active && await verifyPassword(password,teacher)){
-        session={sid:token(),role:'teacher',id:teacher.id,name:teacher.name,version:teacher.version,expires:Date.now()+LOGIN_TTL_MS};
+        session={sid:token(),role:'teacher',id:teacher.id,name:teacher.name,version:teacher.version,expires:Date.now()+LOGIN_TTL_MS,lastSeen:Date.now()};
       }
     }
     if(!session){limit.count++;loginFailures.set(key,limit);return error(res,401,'Usuario ou senha incorretos, ou conta desativada.');}
@@ -272,6 +274,23 @@ async function api(req,res,pathname) {
     const admin=await getPrincipal(req);
     if(!admin||admin.role!=='admin')return error(res,403,'Apenas o administrador pode gerenciar professores.');
     if(pathname==='/api/admin/teachers/list')return sendJson(res,200,{teachers:await userStore.list(),storage:userStore.mode});
+    if(pathname==='/api/admin/teachers/dashboard'){
+      const teachers=await userStore.list(),now=Date.now();
+      const monitoring=teachers.map(t=>{
+        const liveSessions=[...loginSessions.values()].filter(x=>x.role==='teacher'&&x.id===t.id&&x.expires>now&&now-(x.lastSeen||0)<120000);
+        const ownRooms=[...rooms.values()].filter(r=>r.ownerId===t.id);
+        return {...t,online:liveSessions.length>0||ownRooms.some(r=>now-r.teacher.lastPoll<65000),
+          activeRooms:ownRooms.length,sessionsOnline:liveSessions.length,rooms:ownRooms.map(r=>({code:r.code,createdAt:new Date(r.created).toISOString(),expiresAt:new Date(r.expiresAt).toISOString(),students:r.students.size}))};
+      });
+      return sendJson(res,200,{teachers:monitoring,generatedAt:new Date().toISOString()});
+    }
+    if(pathname==='/api/admin/teachers/users'){
+      const all=[...rooms.values()].map(room=>{
+        const teacher=loginSessions.get(room.ownerSid);
+        return {roomCode:room.code,teacherName:teacher?.name||room.ownerName||'Professor',teacherId:room.ownerId,createdAt:new Date(room.created).toISOString(),...roomReport(room)};
+      });
+      return sendJson(res,200,{rooms:all,generatedAt:new Date().toISOString()});
+    }
     if(pathname==='/api/admin/teachers/create'){
       const username=String(body.username||'').trim().toLowerCase();
       const name=String(body.name||'').trim();
@@ -308,8 +327,9 @@ async function api(req,res,pathname) {
     if(!principal)return error(res,403,'Entre como professor ou administrador em /admin.');
     if(rooms.size >= MAX_ROOMS)return error(res,503,'Limite de salas simultaneas atingido.');
     let code;do{code=randomCode(8)}while(rooms.has(code));
-    const room={code,pin:randomCode(16),created:Date.now(),expiresAt:Date.now()+SESSION_LEASE_MS,teacher:null,ownerSid:principal.sid,ownerId:principal.id,students:new Map(),inflight:new Map(),audit:{entries:[],visits:[]}};
+    const room={code,pin:randomCode(16),ownerName:principal.name,created:Date.now(),expiresAt:Date.now()+SESSION_LEASE_MS,teacher:null,ownerSid:principal.sid,ownerId:principal.id,students:new Map(),inflight:new Map(),audit:{entries:[],visits:[]}};
     const teacher=makeSession('teacher',room);teacher.ownerSid=principal.sid;teacher.expiresAt=room.expiresAt;room.teacher=teacher;rooms.set(code,room);
+    if(principal.role==='teacher')await userStore.incrementRoomCount(principal.id);
     // Preserve the browser cookie across long teaching sessions, while the live room
     // remains authorized server-side. An absent/expired session still cannot enter.
     res.setHeader('set-cookie',loginCookie(principal.sid,req,ACTIVE_ROOM_COOKIE_SECONDS));

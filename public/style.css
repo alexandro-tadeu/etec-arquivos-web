@@ -30,3 +30,9 @@
 .session-lease.expired{background:#fff0f0;border-color:#e9a8a8}
 .session-lease.expired [role="timer"]{color:#bb2020}
 @media(max-width:640px){.session-lease{margin:12px;padding:14px}.session-lease button{width:100%}}
+
+.admin-tabs{display:flex;margin-top:18px;background:#e8f0f9;border:1px solid #cbddec;border-radius:12px;overflow:hidden}
+.admin-tabs .tab{flex:1}
+#panelUsuarios .scrolltable{max-height:65vh;overflow:auto}
+#panelUsuarios .teachertable{min-width:1050px}
+#panelUsuarios .teachertable td{overflow-wrap:anywhere}

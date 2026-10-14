@@ -18,6 +18,7 @@ async function refresh(){
   }else {$('storageNote').classList.add('hidden');$('addTeacher').disabled=false;}
   const data=await post('admin/teachers/list');teachers=data.teachers;
   renderTeachers();
+  await loadDashboard();
 }
 function renderTeachers(){
   const tbody=$('teachers');tbody.replaceChildren();
@@ -71,3 +72,66 @@ $('switchToTeacher').addEventListener('click',async()=>{
 });
 $('logout').addEventListener('click',async()=>{try{await post('admin/logout');location.replace('/admin');}catch(e){flash(e.message,true);}});
 refresh().catch(e=>flash(e.message,true));
+
+// Monitoramento administrativo separado do login das salas.
+let adminRooms=[];
+function makeCell(value){const cell=document.createElement('td');cell.textContent=String(value??'—');return cell;}
+function timeBR(v){return v?new Date(v).toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo'}):'—';}
+async function loadDashboard(){
+ const data=await post('admin/teachers/dashboard');
+ const body=$('professorDashboard');body.replaceChildren();
+ for(const t of data.teachers){
+  const tr=document.createElement('tr');
+  [t.name,t.username,t.online?'Online':'Offline',t.activeRooms,t.roomsCreated].forEach(x=>tr.append(makeCell(x)));
+  body.append(tr);
+ }
+ if(!data.teachers.length){const tr=document.createElement('tr');const td=makeCell('Nenhum professor');td.colSpan=5;tr.append(td);body.append(tr);}
+}
+function studentEventRows(){
+ const rows=[];
+ for(const room of adminRooms){
+  const visits=new Map((room.visits||[]).map(x=>[x.studentId,x]));
+  for(const e of room.entries||[]){
+   const v=visits.get(e.studentId);
+   rows.push([room.teacherName,room.roomCode,e.studentName,v?.status==='ONLINE'?'Online':'Offline',
+     e.event==='ENTRY'?'Entrada':e.event==='EXIT'?'Saída':'Arquivo recebido',
+     timeBR(v?.joinedAt),timeBR(v?.leftAt),timeBR(e.at),
+     e.filename?[...(e.pathParts||[]),e.filename].join('/'):'—']);
+  }
+ }
+ return rows;
+}
+async function loadUsers(){
+ const data=await post('admin/teachers/users');adminRooms=data.rooms;
+ const body=$('adminStudentEvents');body.replaceChildren();
+ for(const row of studentEventRows()){const tr=document.createElement('tr');row.forEach(x=>tr.append(makeCell(x)));body.append(tr);}
+ if(!body.children.length){const tr=document.createElement('tr');const cell=makeCell('Nenhum acesso em salas abertas.');cell.colSpan=9;tr.append(cell);body.append(tr);}
+}
+function adminCsvCell(value){
+ let v=String(value??'');
+ if(/^[\s]*[=+@\-\t\r]/u.test(v))v="'"+v;
+ return '"'+v.replace(/"/g,'""')+'"';
+}
+function saveUsersCsv(){
+ const header=['Professor','Sala','Aluno','Status','Registro','Entrada','Saída','Data / hora','Arquivo'];
+ const csv='\uFEFF'+[header,...studentEventRows()].map(row=>row.map(adminCsvCell).join(';')).join('\r\n')+'\r\n';
+ const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
+ const a=document.createElement('a');a.href=url;a.download='etec_usuarios_salas_'+new Date().toISOString().slice(0,10)+'.csv';
+ document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),10000);
+}
+function setAdminTab(tab){
+ const users=tab==='usuarios';
+ $('panelProfessores').classList.toggle('hidden',users);
+ $('panelUsuarios').classList.toggle('hidden',!users);
+ $('tabProfessores').classList.toggle('selected',!users);
+ $('tabUsuarios').classList.toggle('selected',users);
+ $('tabProfessores').setAttribute('aria-selected',String(!users));
+ $('tabUsuarios').setAttribute('aria-selected',String(users));
+ if(users)loadUsers().catch(e=>flash(e.message,true));
+ else loadDashboard().catch(e=>flash(e.message,true));
+}
+$('tabProfessores').addEventListener('click',()=>setAdminTab('professores'));
+$('tabUsuarios').addEventListener('click',()=>setAdminTab('usuarios'));
+$('refreshDashboard').addEventListener('click',()=>loadDashboard().catch(e=>flash(e.message,true)));
+$('refreshUsers').addEventListener('click',()=>loadUsers().catch(e=>flash(e.message,true)));
+$('exportUsers').addEventListener('click',async()=>{try{await loadUsers();saveUsersCsv();}catch(e){flash(e.message,true);}});
