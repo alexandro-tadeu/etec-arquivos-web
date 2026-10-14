@@ -1,48 +1,28 @@
-# ETEC Web v3.0 — desenvolvimento isolado
+# ETEC Web v3.0 — escopo simplificado
 
-**Estado: fundação técnica inicial; não homologado; não publicado.** A `main` e o Render da versão 2.0 continuam sem alterações.
+## Decisão de produto
+A versão 3.0 mantém a interface simples da versão 2.0 e acrescenta turmas persistentes, matrículas individualizadas, atividades, entregas versionadas e comprovantes.
 
-## Componentes introduzidos
+**Fora do escopo por decisão do usuário:** MFA/TOTP administrativo, bootstrap de administradores e homologação institucional formal. O administrador continua autenticando por usuário e senha na implementação legada até eventual migração específica.
 
-- `v3/security.js`: geração de códigos aleatórios, HMAC com chave externa, política de validade/tentativas, geração/verificação TOTP, cifragem AES-256-GCM com identificação vinculada e códigos de recuperação.
-- `v3/migrations/001_security_foundation.sql`: **rascunho de migração não destrutiva**, cobrindo cadastros de administradores, bootstrap, TOTP, sessões, revisões, escalonamentos, correções, trilha de auditoria e notificações.
-- `tests/v3-security.test.js`: testes unitários iniciais, incluindo vetor TOTP RFC 6238.
+**Continuam obrigatórios:** testes técnicos, autorização por professor e por aluno, proteção de credenciais, integridade das entregas, persistência Neon, controle de falhas, proteção CSRF, auditoria operacional e confirmação de escrita física via Edge.
 
-## Importante: ainda falta implementar
+## Arquitetura
+- Edge do professor: pasta física de materiais e entregas; os arquivos permanecem no computador.
+- Node/Render: somente intermediação de transferências e metadados transitórios.
+- PostgreSQL/Neon: usuários e metadados persistentes, versões e protocolos; **não armazenar binários**.
+- Interface professor/aluno: visual da v2, com área simples de Turmas, Alunos, Atividades e Entregas.
 
-1. Fluxo transacional de emissão/revogação/consumo do bootstrap com aprovações institucionais verificadas.
-2. Mecanismo de provisionamento seguro e independente para o técnico; sem atalhos de autenticação.
-3. Migração das sessões administrativas e bloqueio de todas as rotas legadas sem MFA.
-4. Endpoints, interfaces e procedimentos de recuperação de TOTP e códigos de recuperação.
-5. Cadastro persistente de salas, alunos e atividades; matrícula, versões de entrega e comprovantes.
-6. Integração segura do compartilhamento local (Edge) com confirmação do armazenamento físico antes do protocolo.
-7. Escalonamento programado, notificações, revisões, retificações e casos externos.
-8. Testes de integração com PostgreSQL real, segurança e homologação com evidências.
-9. Definição formal dos parâmetros institucionais, retenção e limites técnicos antes de produção.
+## Módulos e implantação
+- `v3/migrations/001_security_foundation.sql`: auditoria operacional básica; **não contém MFA**.
+- `v3/migrations/002_academic_foundation.sql`: salas, matrículas, atividades e entregas.
+- `v3/academic-store.js`, `v3/api.js`, `v3/submission-store.js`: persistência e API acadêmicas em desenvolvimento.
+- `public/atividades.html`, `public/atividades.js`: interface simplificada.
+- O envio real dos bytes pelo navegador do aluno até o Edge deve ser associado à transferência autorizada; apenas uma declaração `edgeWriteVerified` não prova gravação.
+- Não ativar em produção antes de verificar testes integrados de transferência e publicação com Neon/Edge. Isso é validação **técnica**, não homologação institucional.
 
-## Executar os testes
+## Cuidados
+Não executar migrações no Neon de produção nesta fase; não fazer merge com `main` nem deploy automático. A proteção de sessão administrativa baseada apenas em senha permanece e deve usar senhas fortes e controle de tentativas. Os mecanismos criptográficos experimentais de TOTP, anteriormente implementados, foram retirados deste escopo.
 
-Na raiz do projeto, com Node.js 20+:
-
-```bash
-node --test tests/v3-security.test.js
-npm test
-```
-
-O segundo comando também executa os testes da versão 2.0; a expectativa de sucesso precisa ser **verificada** num ambiente de execução, não apenas inferida do código.
-
-## Banco de dados
-
-**Não executar a migração no Neon de produção.** Validar em uma instância de teste com cópia anonimizada do esquema e checklist de rollback. Mesmo após aplicar a migração, não há rotas administrativas v3 conectadas; criar tabelas não equivale a implementar a aplicação.
-
-## Regras de segurança pendentes de validação
-
-- Chaves criptográficas independentes (HMAC e TOTP), provisionadas por gestor de segredos. Nunca inserir segredos reais no GitHub, logs ou URLs.
-- Preservar `ADMIN_USER` e `ADMIN_PASSWORD` de produção **apenas enquanto a v2 permanecer ativa**, sem utilizá-los como bypass de MFA quando a v3 for ativada.
-- Não efetuar merge ou deploy até que o novo processo de autenticação esteja completo, testado e aprovado.
-- A revogação e o escalonamento não reativam códigos nem concedem permissões.
-- O desenho de retenção e autorizações deve respeitar a política institucional formal.
-
-## Publicação
-
-Preparar PR a partir da branch `v3-desenvolvimento`; revisar diffs, executar testes, completar endpoints e UI, homologar e somente depois aprovar deploy com plano de retorno.
+## Testes
+Executar `npm test` e testar manualmente a sequência: professor entra → cria turma → cadastra aluno → publica atividade → aluno entra com identidade individual → envia arquivos → Edge grava/relê → Neon confirma → aluno vê protocolo. Testes simulados não substituem validação com banco e navegador reais.
