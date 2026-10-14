@@ -41,13 +41,15 @@ test('professor room survives grace and account TTL, and only explicit close rem
     const cookie=login.cookie.split(';')[0];
     const room=await post('create',{},cookie);
     assert.equal(room.status,200);
+    assert.match(room.cookie||'',/Max-Age=604800/,'room cookie persists while room remains open');
     await sleep(1450); // surpass both heartbeat grace and original login TTL
     const health=await (await fetch(base+'/healthz')).json();
     assert.equal(health.rooms,1,'room must not close automatically');
-    const renewed=await post('poll',{token:room.data.token},cookie);
+    const waitPoll=post('poll',{token:room.data.token},cookie);
+    const joined=await post('join',{code:room.data.code,pin:room.data.pin,name:'Aluno Teste'});
+    const renewed=await waitPoll;
     assert.equal(renewed.status,200,'teacher can resume polling after grace/TTL');
     assert.match(renewed.cookie||'',/etec_login=/,'refresh login cookie while active');
-    const joined=await post('join',{code:room.data.code,pin:room.data.pin,name:'Aluno Teste'});
     assert.equal(joined.status,200,'room accepts students after professor reconnects');
     const ended=await post('close',{token:room.data.token},cookie);
     assert.equal(ended.status,200,'manual stop works');

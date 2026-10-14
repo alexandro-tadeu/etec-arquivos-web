@@ -60,6 +60,7 @@ const LOGIN_TTL_MS = process.env.NODE_ENV==='test' && Number(process.env.ETEC_TE
 const CLEAN_INTERVAL_MS = process.env.NODE_ENV==='test' && Number(process.env.ETEC_TEST_CLEAN_MS)>0
   ? Number(process.env.ETEC_TEST_CLEAN_MS) : 15000;
 const LOGIN_LOCK_MS = 5 * 60 * 1000;
+const ACTIVE_ROOM_COOKIE_SECONDS = 7 * 24 * 60 * 60;
 const loginSessions = new Map();
 const loginFailures = new Map();
 const usernameRule=/^[a-z][a-z0-9._-]{2,39}$/;
@@ -304,6 +305,9 @@ async function api(req,res,pathname) {
     let code;do{code=randomCode(8)}while(rooms.has(code));
     const room={code,pin:randomCode(16),created:Date.now(),teacher:null,ownerSid:principal.sid,ownerId:principal.id,students:new Map(),inflight:new Map(),audit:{entries:[],visits:[]}};
     const teacher=makeSession('teacher',room);teacher.ownerSid=principal.sid;room.teacher=teacher;rooms.set(code,room);
+    // Preserve the browser cookie across long teaching sessions, while the live room
+    // remains authorized server-side. An absent/expired session still cannot enter.
+    res.setHeader('set-cookie',loginCookie(principal.sid,req,ACTIVE_ROOM_COOKIE_SECONDS));
     return sendJson(res,200,{code,pin:room.pin,token:teacher.token});
   }
   if (pathname === '/api/join') {
@@ -344,7 +348,7 @@ async function api(req,res,pathname) {
       const principal=loginSessions.get(sess.ownerSid);
       if(principal){
         principal.expires=Date.now()+LOGIN_TTL_MS;
-        res.setHeader('set-cookie',loginCookie(principal.sid,req,Math.ceil(LOGIN_TTL_MS/1000)));
+        res.setHeader('set-cookie',loginCookie(principal.sid,req,ACTIVE_ROOM_COOKIE_SECONDS));
       }
     }
     if (sess.waiter) {const old=sess.waiter;sess.waiter=null;clearTimeout(sess.timer);sendJson(old,200,{events:[]});}
