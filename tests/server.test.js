@@ -56,6 +56,15 @@ test('site, sala, protecao, lista, download e upload em eventos intermediados',a
   assert.equal((await profile.json()).role,'admin');
   assert.equal((await fetch(base+'/professor',{headers:{cookie:adminCookie}})).status,200);
   assert.equal((await fetch(base+'/admin',{headers:{cookie:adminCookie},redirect:'manual'})).status,302);
+  const listResponse=await fetch(base+'/api/admin/teachers/list',{
+    method:'POST',headers:{'content-type':'application/json',cookie:adminCookie},body:'{}'
+  });
+  assert.equal(listResponse.status,200);
+  const teacherList=await listResponse.json();
+  assert.ok(Array.isArray(teacherList.teachers));
+  assert.equal((await fetch(base+'/api/admin/teachers/list',{
+    method:'POST',headers:{'content-type':'application/json'},body:'{}'
+  })).status,403);
   const created=await post('create',{});assert.equal(created.code,200);
   const {code,pin,token:secretTeacherToken}=created.body;teacherToken=secretTeacherToken;
   assert.equal((await post('poll',{token:teacherToken},{anonymous:true})).code,403);

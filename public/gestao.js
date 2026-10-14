@@ -16,9 +16,10 @@ async function refresh(){
     $('storageNote').classList.remove('hidden');
     $('addTeacher').disabled=true;
   }else {$('storageNote').classList.add('hidden');$('addTeacher').disabled=false;}
+  // A mesma resposta alimenta as duas tabelas, sem repetir a consulta SQL.
   const data=await post('admin/teachers/list');teachers=data.teachers;
   renderTeachers();
-  await loadDashboard();
+  renderDashboard(teachers);
 }
 function renderTeachers(){
   const tbody=$('teachers');tbody.replaceChildren();
@@ -66,26 +67,34 @@ $('teacherForm').addEventListener('submit',async e=>{
   catch(err){flash(err.message,true);}finally{$('addTeacher').disabled=false;}
 });
 $('refresh').addEventListener('click',()=>refresh().catch(e=>flash(e.message,true)));
-$('switchToTeacher').addEventListener('click',async()=>{
+$('switchToTeacher')?.addEventListener('click',async()=>{
  try{await post('admin/logout');location.replace('/admin');}
  catch(e){flash(e.message,true);}
 });
 $('logout').addEventListener('click',async()=>{try{await post('admin/logout');location.replace('/admin');}catch(e){flash(e.message,true);}});
-refresh().catch(e=>flash(e.message,true));
-
 // Monitoramento administrativo separado do login das salas.
 let adminRooms=[];
+let selectedTab='professores';
 function makeCell(value){const cell=document.createElement('td');cell.textContent=String(value??'—');return cell;}
 function timeBR(v){return v?new Date(v).toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo'}):'—';}
-async function loadDashboard(){
- const data=await post('admin/teachers/dashboard');
+function renderDashboard(items){
  const body=$('professorDashboard');body.replaceChildren();
- for(const t of data.teachers){
+ for(const t of items){
   const tr=document.createElement('tr');
   [t.name,t.username,t.online?'Online':'Offline',t.activeRooms,t.roomsCreated].forEach(x=>tr.append(makeCell(x)));
   body.append(tr);
  }
- if(!data.teachers.length){const tr=document.createElement('tr');const td=makeCell('Nenhum professor');td.colSpan=5;tr.append(td);body.append(tr);}
+ if(!items.length){const tr=document.createElement('tr');const td=makeCell('Nenhum professor');td.colSpan=5;tr.append(td);body.append(tr);}
+ $('dashboardSyncedAt').textContent='Atualizado às '+new Date().toLocaleTimeString('pt-BR',{timeZone:'America/Sao_Paulo'});
+}
+let dashboardPending=null;
+async function loadDashboard(){
+ if(dashboardPending)return dashboardPending;
+ dashboardPending=(async()=>{
+  const data=await post('admin/teachers/dashboard');
+  renderDashboard(data.teachers);
+ })().finally(()=>{dashboardPending=null;});
+ return dashboardPending;
 }
 function studentEventRows(){
  const rows=[];
@@ -101,11 +110,18 @@ function studentEventRows(){
  }
  return rows;
 }
+let usersPending=null;
 async function loadUsers(){
+ if(usersPending)return usersPending;
+ usersPending=(async()=>{
+ $('usersSyncedAt').textContent='Atualizando acessos…';
  const data=await post('admin/teachers/users');adminRooms=data.rooms;
  const body=$('adminStudentEvents');body.replaceChildren();
  for(const row of studentEventRows()){const tr=document.createElement('tr');row.forEach(x=>tr.append(makeCell(x)));body.append(tr);}
  if(!body.children.length){const tr=document.createElement('tr');const cell=makeCell('Nenhum acesso em salas abertas.');cell.colSpan=9;tr.append(cell);body.append(tr);}
+ $('usersSyncedAt').textContent='Atualizado às '+new Date().toLocaleTimeString('pt-BR',{timeZone:'America/Sao_Paulo'});
+ })().finally(()=>{usersPending=null;});
+ return usersPending;
 }
 function adminCsvCell(value){
  let v=String(value??'');
@@ -120,6 +136,7 @@ function saveUsersCsv(){
  document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),10000);
 }
 function setAdminTab(tab){
+ selectedTab=tab;
  const users=tab==='usuarios';
  $('panelProfessores').classList.toggle('hidden',users);
  $('panelUsuarios').classList.toggle('hidden',!users);
@@ -135,3 +152,15 @@ $('tabUsuarios').addEventListener('click',()=>setAdminTab('usuarios'));
 $('refreshDashboard').addEventListener('click',()=>loadDashboard().catch(e=>flash(e.message,true)));
 $('refreshUsers').addEventListener('click',()=>loadUsers().catch(e=>flash(e.message,true)));
 $('exportUsers').addEventListener('click',async()=>{try{await loadUsers();saveUsersCsv();}catch(e){flash(e.message,true);}});
+refresh().catch(e=>flash(e.message,true));
+// A sincronizacao ocorre apenas na guia visivel, sem recarregar toda a pagina.
+setInterval(()=>{
+ if(document.visibilityState==='hidden')return;
+ if(selectedTab==='usuarios')loadUsers().catch(e=>flash(e.message,true));
+ else loadDashboard().catch(e=>flash(e.message,true));
+},20000);
+document.addEventListener('visibilitychange',()=>{
+ if(document.visibilityState!=='visible')return;
+ if(selectedTab==='usuarios')loadUsers().catch(e=>flash(e.message,true));
+ else loadDashboard().catch(e=>flash(e.message,true));
+});
