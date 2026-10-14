@@ -123,6 +123,7 @@ async function teacherEvent(evt){
         const entries=[];
         for await(const [name,handle] of dir.entries()){
           if(entries.length>=400)throw new Error('A pasta possui mais de 400 itens. Divida os arquivos em subpastas.');
+          if (['ENTREGAS','RECUPERACAO_PRIVADA'].includes(name.toUpperCase())) continue;
           entries.push({name,kind:handle.kind});
         }
         entries.sort((a,b)=>a.kind===b.kind?a.name.localeCompare(b.name,'pt-BR'):(a.kind==='directory'?-1:1));

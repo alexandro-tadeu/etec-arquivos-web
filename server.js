@@ -10,6 +10,20 @@ const scrypt = promisify(crypto.scrypt);
 const {createUserStore} = require('./user-store');
 const userStore=createUserStore();
 
+// Academic API v3 is opt-in; production stays blocked until integrated technical validation.
+const V3_API_ENABLED=process.env.ETEC_V3_API_ENABLED==='true';
+let v3ApiRequest=null;
+if(V3_API_ENABLED){
+  if(process.env.NODE_ENV==='production')throw new Error('V3 API blocked in production until end-to-end transfer and security tests are complete.');
+  if(!process.env.DATABASE_URL||!process.env.V3_STUDENT_CODE_HMAC_KEY)throw new Error('Missing v3 database/HMAC configuration.');
+  const {Pool}=require('pg');
+  const {createAcademicStore}=require('./v3/academic-store');
+  const {createSubmissionStore}=require('./v3/submission-store');
+  const {createV3Api}=require('./v3/api');
+  const pool=new Pool({connectionString:process.env.DATABASE_URL,max:5,connectionTimeoutMillis:12000,idleTimeoutMillis:30000});
+  v3ApiRequest=createV3Api({store:createAcademicStore({pool,hmacKey:process.env.V3_STUDENT_CODE_HMAC_KEY}),submissionStore:createSubmissionStore(pool),getPrincipal});
+}
+
 const PORT = Number(process.env.PORT || 3000);
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const MAX_BODY = 180 * 1024;
@@ -82,7 +96,7 @@ function redirect(res, loc) {
 }
 function sendJson(res, status, obj) { if (res.writableEnded) return; res.writeHead(status, {'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff'}); res.end(JSON.stringify(obj)); }
 function error(res, status, detail) { sendJson(res, status, {error:detail}); }
-function safePath(p) { return Array.isArray(p) && p.length <= 20 && p.every(part => typeof part === 'string' && part.length > 0 && part.length <= 180 && part !== '.' && part !== '..' && !/[\\/\0]/.test(part)); }
+function safePath(p) { return Array.isArray(p) && p.length <= 20 && p.every(part => typeof part === 'string' && part.length > 0 && part.length <= 180 && part !== '.' && part !== '..' && !/[\\/\0]/.test(part) && !['ENTREGAS','RECUPERACAO_PRIVADA'].includes(part.toUpperCase())); }
 function safeName(s) { return typeof s === 'string' && s.length > 0 && s.length <= 180 && s !== '.' && s !== '..' && !/[\\/\0<>:"|?*]/.test(s) && !/[. ]$/.test(s); }
 function cleanupSession(sess) { if (!sess) return; if (sess.timer) clearTimeout(sess.timer); sess.timer=null; if (sess.waiter && !sess.waiter.writableEnded) sendJson(sess.waiter, 200, {events:[]}); sess.waiter=null; sessions.delete(sess.token); }
 function finishRoom(room) {
@@ -139,6 +153,10 @@ async function parseBody(req) {
 }
 function serveStatic(req, res, pathname) {
   const files={'/':'index.html','/index.html':'index.html','/admin':'admin.html','/professor':'professor.html','/gestao':'gestao.html','/gestao.js':'gestao.js','/app.js':'app.js','/admin.js':'admin.js','/style.css':'style.css'};
+  if (V3_API_ENABLED && process.env.NODE_ENV !== 'production') {
+    files['/atividades'] = 'atividades.html';
+    files['/atividades.js'] = 'atividades.js';
+  }
   const filename = files[pathname];
   if (!filename) return error(res,404,'Nao encontrado.');
   const type = filename.endsWith('.js') ? 'text/javascript; charset=utf-8' : filename.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/html; charset=utf-8';
@@ -309,6 +327,10 @@ async function api(req,res,pathname) {
 
 async function handleRequest(req,res) {
   const pathname=new URL(req.url,'http://localhost').pathname;
+  if(pathname.startsWith('/api/v3/')){
+    if(!v3ApiRequest)return error(res,404,'Nao encontrado.');
+    return v3ApiRequest(req,res,pathname);
+  }
   if(req.method==='GET'&&pathname==='/healthz')return sendJson(res,200,{ok:true,rooms:rooms.size,storage:userStore.mode});
   if(req.method==='GET') {
     if(pathname==='/professor' || pathname==='/gestao'){
