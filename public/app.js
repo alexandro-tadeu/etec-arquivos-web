@@ -28,7 +28,7 @@ function leaseElements(){
   return {box:$(teacher?'teacherSessionLease':'studentSessionLease'),
     timer:$(teacher?'teacherCountdown':'studentCountdown'),
     hint:$(teacher?'teacherCountdownHint':'studentCountdownHint'),
-    button:$(teacher?'renewTeacherSession':'renewStudentSession')};
+    button:teacher?$('renewTeacherSession'):null};
 }
 function setLeaseExpiration(value){
   state.expiresAt=Date.parse(value);
@@ -44,7 +44,7 @@ function updateLeaseClock(){
   ui.timer.textContent=String(Math.floor(seconds/60)).padStart(2,'0')+':'+String(seconds%60).padStart(2,'0');
   ui.box.classList.toggle('warning',remaining>0&&remaining<=LEASE_WARNING_MS);
   ui.box.classList.toggle('expired',remaining===0);
-  ui.button.disabled=!state.alive||remaining===0;
+  if(ui.button)ui.button.disabled=!state.alive||remaining===0;
   if(remaining===0){
     ui.hint.textContent='Tempo encerrado. Entre novamente para abrir uma nova sessão.';
     if(state.alive){
@@ -56,10 +56,10 @@ function updateLeaseClock(){
       else{hide('teacherPanel');show('startPanel');$('selectFolder').disabled=false;}
     }
   }else if(remaining<=LEASE_WARNING_MS){
-    ui.hint.textContent='Faltam menos de 5 minutos. Clique em Renovar antes que o prazo termine.';
+    ui.hint.textContent=state.role==='teacher'?'Faltam menos de 5 minutos. Clique em Renovar antes que o prazo termine.':'Faltam menos de 5 minutos. Aguarde o professor renovar a sala.';
     if(!warnedLease){warnedLease=true;flash('Atenção: faltam menos de 5 minutos para sua sessão terminar.',true);}
   }else{
-    ui.hint.textContent='Sessão de até 50 minutos. A renovação depende de um clique e da validade da sala.';
+    ui.hint.textContent=state.role==='teacher'?'A renovação depende do botão do professor.':'Cronômetro sincronizado com a sala. Somente o professor renova o prazo.';
   }
 }
 setInterval(updateLeaseClock,1000);
@@ -73,7 +73,7 @@ async function renewLease(button){
   }finally{updateLeaseClock();}
 }
 $('renewTeacherSession')?.addEventListener('click',e=>renewLease(e.currentTarget).catch(err=>flash(err.message,true)));
-$('renewStudentSession')?.addEventListener('click',e=>renewLease(e.currentTarget).catch(err=>flash(err.message,true)));
+// No portal do aluno nao ha renovacao manual.
 
 function flash(message, bad=false) {const e=$('message');e.textContent=message;e.classList.remove('hidden');e.classList.toggle('bad',bad);}
 function clearFlash(){ $('message').classList.add('hidden'); }
@@ -99,6 +99,10 @@ async function poll(){
     try{
       const response=await api('poll',{token:state.token});
       if(!state.alive)return;
+      if(state.role==='student'&&response.roomExpiresAt&&
+         Date.parse(response.roomExpiresAt)>state.expiresAt){
+        setLeaseExpiration(response.roomExpiresAt);
+      }
       for(const event of response.events||[]){
         try {if(state.role==='teacher') await teacherEvent(event); else await studentEvent(event);}
         catch(err){console.error('Falha em evento',err);flash(err.message,true);}
@@ -458,6 +462,11 @@ async function sendNextChunk(job){
   await send({type:'chunk',id:job.id,data:toBase64(bytes)});
 }
 async function studentEvent(evt){
+  if(evt.type==='room_lease'){
+    if(evt.expiresAt&&Date.parse(evt.expiresAt)>state.expiresAt)
+      setLeaseExpiration(evt.expiresAt);
+    return;
+  }
   if(evt.type==='closed'){state.alive=false;rejectJobs(evt.message);flash(evt.message,true);return;}
   const job=state.jobs.get(evt.id);if(!job)return;
   if(evt.type==='answer'){

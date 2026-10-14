@@ -34,8 +34,11 @@ test('50-minute lease is server-enforced, manually renewed and automatically clo
   assert.equal(renewed.status,200);
   assert.ok(Date.parse(renewed.body.expiresAt)>Date.parse(room.body.expiresAt));
   const before=await post('renew',{token:student.body.token});
-  assert.equal(before.status,200);
-  assert.ok(Date.parse(before.body.expiresAt)<=Date.parse(renewed.body.expiresAt));
+  assert.equal(before.status,403,'student cannot renew the room');
+  const studentPoll=await post('poll',{token:student.body.token});
+  assert.equal(studentPoll.status,200);
+  assert.equal(Date.parse(studentPoll.body.roomExpiresAt),Date.parse(renewed.body.expiresAt));
+  assert.ok(studentPoll.body.events.some(e=>e.type==='room_lease'),'teacher renewal reaches student');
   await sleep(650);
   const again=await post('renew',{token:room.body.token},cookie);
   assert.equal(again.status,200);
@@ -47,12 +50,14 @@ test('50-minute lease is server-enforced, manually renewed and automatically clo
   assert.equal((await post('join',{code:room.body.code,pin:room.body.pin,name:'Aluno Exemplo'})).status,401);
  }finally{proc.kill();fs.rmSync(temp,{recursive:true,force:true});}
 });
-test('both interfaces display 50-minute countdown and manual renew action',()=>{
+test('both interfaces show shared countdown, and only teacher can renew',()=>{
  const teacher=fs.readFileSync(path.join(root,'public/professor.html'),'utf8');
  const student=fs.readFileSync(path.join(root,'public/index.html'),'utf8');
  const browser=fs.readFileSync(path.join(root,'public/app.js'),'utf8');
  for(const id of ['teacherCountdown','renewTeacherSession'])assert.ok(teacher.includes('id="'+id+'"'));
- for(const id of ['studentCountdown','renewStudentSession'])assert.ok(student.includes('id="'+id+'"'));
+ assert.ok(student.includes('id="studentCountdown"'));
+ assert.ok(!student.includes('id="renewStudentSession"'));
  assert.match(browser,/setInterval\(updateLeaseClock,1000\)/);
  assert.match(browser,/api\('renew',\{token:state\.token\}\)/);
+ assert.match(browser,/evt\.type==='room_lease'/);
 });
