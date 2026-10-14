@@ -18,9 +18,10 @@ if(V3_API_ENABLED){
   if(!process.env.DATABASE_URL||!process.env.V3_STUDENT_CODE_HMAC_KEY)throw new Error('Missing v3 database/HMAC configuration.');
   const {Pool}=require('pg');
   const {createAcademicStore}=require('./v3/academic-store');
+  const {createSubmissionStore}=require('./v3/submission-store');
   const {createV3Api}=require('./v3/api');
   const pool=new Pool({connectionString:process.env.DATABASE_URL,max:5,connectionTimeoutMillis:12000,idleTimeoutMillis:30000});
-  v3ApiRequest=createV3Api({store:createAcademicStore({pool,hmacKey:process.env.V3_STUDENT_CODE_HMAC_KEY}),getPrincipal});
+  v3ApiRequest=createV3Api({store:createAcademicStore({pool,hmacKey:process.env.V3_STUDENT_CODE_HMAC_KEY}),submissionStore:createSubmissionStore(pool),getPrincipal});
 }
 
 const PORT = Number(process.env.PORT || 3000);
