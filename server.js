@@ -96,7 +96,7 @@ function redirect(res, loc) {
 }
 function sendJson(res, status, obj) { if (res.writableEnded) return; res.writeHead(status, {'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff'}); res.end(JSON.stringify(obj)); }
 function error(res, status, detail) { sendJson(res, status, {error:detail}); }
-function safePath(p) { return Array.isArray(p) && p.length <= 20 && p.every(part => typeof part === 'string' && part.length > 0 && part.length <= 180 && part !== '.' && part !== '..' && !/[\\/\0]/.test(part)); }
+function safePath(p) { return Array.isArray(p) && p.length <= 20 && p.every(part => typeof part === 'string' && part.length > 0 && part.length <= 180 && part !== '.' && part !== '..' && !/[\\/\0]/.test(part) && !['ENTREGAS','RECUPERACAO_PRIVADA'].includes(part.toUpperCase())); }
 function safeName(s) { return typeof s === 'string' && s.length > 0 && s.length <= 180 && s !== '.' && s !== '..' && !/[\\/\0<>:"|?*]/.test(s) && !/[. ]$/.test(s); }
 function cleanupSession(sess) { if (!sess) return; if (sess.timer) clearTimeout(sess.timer); sess.timer=null; if (sess.waiter && !sess.waiter.writableEnded) sendJson(sess.waiter, 200, {events:[]}); sess.waiter=null; sessions.delete(sess.token); }
 function finishRoom(room) {
