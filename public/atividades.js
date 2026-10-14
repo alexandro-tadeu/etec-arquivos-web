@@ -1,120 +1,33 @@
 'use strict';
+// Interface simples v3: nunca envia caminho fisico privado nem token do aluno ao HTML.
 const $=id=>document.getElementById(id);
-const teacher=$('teacherArea'),student=$('studentArea');
-let selectedRoom='',latestRoomCredentials='',latestStudentCredentials='';
-function showError(e){const msg=$('message');msg.textContent=e.message||String(e);msg.classList.remove('hidden');msg.classList.add('bad');}
-function showMessage(text){const msg=$('message');msg.textContent=text;msg.classList.remove('hidden');msg.classList.remove('bad');}
-async function http(route,{method='GET',data}={}){
- const res=await fetch('/api/v3/'+route,{method,headers:method==='POST'?{'content-type':'application/json'}:undefined,credentials:'same-origin',cache:'no-store',body:method==='POST'?JSON.stringify(data||{}):undefined});
- let result;try{result=await res.json();}catch{throw Error('Resposta invalida do servidor.');}
- if(!res.ok)throw Error(result.error||'Falha na comunicação.');
- return result;
-}
-function option(select,value,label){const o=document.createElement('option');o.value=value;o.textContent=label;select.append(o);}
-function td(row,value){const cell=document.createElement('td');cell.textContent=String(value??'—');row.append(cell);return cell;}
-function empty(tbody,span,message){const row=document.createElement('tr'),cell=document.createElement('td');cell.colSpan=span;cell.textContent=message;row.append(cell);tbody.replaceChildren(row);}
-function localDate(value){return value?new Date(value).toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo'}):'—';}
-async function copy(value){try{await navigator.clipboard.writeText(value);showMessage('Copiado.');}catch{showError(Error('Não foi possível copiar. Selecione o texto exibido.'));}}
-async function rooms(){
- const data=await http('teacher/rooms');const select=$('roomSelect'),remember=selectedRoom;select.replaceChildren();option(select,'','Escolha uma turma');
- for(const room of data.rooms||[])option(select,room.id,room.title+' · '+room.code);
- if((data.rooms||[]).some(x=>x.id===remember))select.value=remember;
- selectedRoom=select.value;
- await loadRoom();
-}
-async function loadRoom(){
- selectedRoom=$('roomSelect').value;
- $('newRoomCredentials').classList.add('hidden');$('newStudentCredentials').classList.add('hidden');
- if(!selectedRoom){empty($('studentRows'),3,'Selecione uma turma.');empty($('activityRows'),4,'Selecione uma turma.');return;}
- const [st,ac]=await Promise.all([
-   http('teacher/enrollments?roomId='+encodeURIComponent(selectedRoom)),
-   http('teacher/activities?roomId='+encodeURIComponent(selectedRoom))
- ]);
- $('studentRows').replaceChildren();
- for(const item of st.students||[]){const row=document.createElement('tr');td(row,item.full_name);td(row,item.rm);td(row,item.active?'Ativo':'Inativo');$('studentRows').append(row);}
- if(!(st.students||[]).length)empty($('studentRows'),3,'Nenhum aluno cadastrado.');
- $('activityRows').replaceChildren();
- for(const item of ac.activities||[]){
-  const row=document.createElement('tr');td(row,item.title);td(row,localDate(item.deadline_at));td(row,item.status);
-  const cell=document.createElement('td');
-  if(item.status==='DRAFT'){
-   const button=document.createElement('button');button.type='button';button.className='minor';button.textContent='Publicar';
-   button.addEventListener('click',()=>run(async()=>{await http('teacher/activities/publish',{method:'POST',data:{roomId:selectedRoom,activityId:item.id}});await loadRoom();showMessage('Atividade publicada.');}));cell.append(button);
-  }
-  row.append(cell);$('activityRows').append(row);
- }
- if(!(ac.activities||[]).length)empty($('activityRows'),4,'Nenhuma atividade cadastrada.');
-}
-async function run(task){try{await task();}catch(e){showError(e);}}
-$('roomSelect').addEventListener('change',()=>run(loadRoom));
-$('refreshRooms').addEventListener('click',()=>run(rooms));
-$('createRoom').addEventListener('click',()=>run(async()=>{
- const title=$('roomTitle').value.trim();if(title.length<3)throw Error('Informe o nome da turma.');
- const r=await http('teacher/rooms',{method:'POST',data:{title}});
- latestRoomCredentials='Turma: '+r.room.title+'\nCódigo: '+r.room.code+'\nSenha: '+r.pin;
- await rooms();selectedRoom=r.room.id;$('roomSelect').value=selectedRoom;await loadRoom();
- $('roomCredentialsText').textContent=latestRoomCredentials;$('newRoomCredentials').classList.remove('hidden');
- showMessage('Turma criada. Guarde a senha: ela não será exibida novamente.');
-}));
-$('copyRoomCredentials').addEventListener('click',()=>copy(latestRoomCredentials));
-$('enrollStudent').addEventListener('click',()=>run(async()=>{
- if(!selectedRoom)throw Error('Selecione uma turma.');
- const name=$('studentName').value.trim(),rm=$('studentRm').value.trim();
- const r=await http('teacher/enrollments',{method:'POST',data:{roomId:selectedRoom,name,rm}});
- latestStudentCredentials='Aluno: '+r.student.full_name+'\nRM: '+r.student.rm+'\nCódigo individual: '+r.individualCode;
- await loadRoom();$('studentCredentialsText').textContent=latestStudentCredentials;
- $('newStudentCredentials').classList.remove('hidden');$('studentName').value='';$('studentRm').value='';
- showMessage('Aluno cadastrado. Entregue o código individual em particular.');
-}));
-$('copyStudentCredentials').addEventListener('click',()=>copy(latestStudentCredentials));
-$('createActivity').addEventListener('click',()=>run(async()=>{
- if(!selectedRoom)throw Error('Selecione uma turma.');
- const title=$('activityTitle').value.trim(),description=$('activityDescription').value;
- const chosen=$('activityDeadline').value;
- if(!chosen)throw Error('Informe o prazo de entrega.');
- // Converte horario informado pelo usuario no fuso civil de Sao Paulo.
- const deadlineAt=new Date(chosen+':00-03:00').toISOString();
- const allowedExtensions=$('activityFormats').value.split(',');
- const acceptLate=$('activityAcceptLate').checked;
- await http('teacher/activities',{method:'POST',data:{roomId:selectedRoom,title,description,deadlineAt,allowedExtensions,acceptLate}});
- $('activityTitle').value='';$('activityDescription').value='';
- await loadRoom();showMessage('Atividade criada. Clique em Publicar para liberar aos alunos.');
-}));
-async function studentDashboard(){
- const [me,activities,receipts]=await Promise.all([
-  http('student/me'),http('student/activities'),http('student/receipts')
- ]);
- $('studentIdentity').textContent=me.student.name+' · RM '+me.student.rm;
- $('studentActivities').replaceChildren();
- for(const a of activities.activities||[]){
-  const line=document.createElement('div');line.className='fileitem';
-  const p=document.createElement('p'),b=document.createElement('strong');b.textContent=a.title;
-  p.append(b,document.createTextNode(' — prazo: '+localDate(a.deadline_at)));
-  const d=document.createElement('small');d.textContent=a.description||'Atividade publicada.';
-  line.append(p,d);$('studentActivities').append(line);
- }
- if(!(activities.activities||[]).length)$('studentActivities').textContent='Nenhuma atividade publicada.';
- $('studentReceipts').replaceChildren();
- for(const r of receipts.receipts||[]){
-  const line=document.createElement('div');line.className='fileitem';
-  line.textContent=r.activityTitle+' · '+r.protocol+' · V'+String(r.version).padStart(3,'0')+' · '+localDate(r.completedAt);
-  $('studentReceipts').append(line);
- }
- if(!(receipts.receipts||[]).length)$('studentReceipts').textContent='Nenhuma entrega confirmada.';
- $('studentLoginPanel').classList.add('hidden');$('studentDashboard').classList.remove('hidden');
-}
-$('studentLoginForm').addEventListener('submit',e=>{e.preventDefault();run(async()=>{
- const data={roomCode:$('loginRoomCode').value.trim().toUpperCase(),pin:$('loginRoomPin').value.trim().toUpperCase(),
- name:$('loginStudentName').value.trim(),rm:$('loginStudentRm').value.trim(),individualCode:$('loginIndividualCode').value.trim()};
- await http('student/login',{method:'POST',data});$('loginIndividualCode').value='';await studentDashboard();
-});});
-$('studentLogout').addEventListener('click',()=>run(async()=>{
- await http('student/logout',{method:'POST',data:{}});
- $('studentDashboard').classList.add('hidden');$('studentLoginPanel').classList.remove('hidden');showMessage('Você saiu da turma.');
-}));
-(async()=>{
- try{const res=await fetch('/api/auth/me',{cache:'no-store'});const me=res.ok?await res.json():null;
-  if(me?.role==='teacher'){teacher.classList.remove('hidden');await rooms();}
-  else{student.classList.remove('hidden');try{await studentDashboard();}catch{}}
- }catch(e){showError(e);}
-})();
+let teacherRoom='',teacherFolder=null,relayEpoch=0,receiver=null;
+const pause=ms=>new Promise(r=>setTimeout(r,ms));
+function notice(message,isError=false){const box=$('message');box.textContent=message;box.classList.remove('hidden');box.classList.toggle('bad',isError);}
+function busy(target,on){if(target)target.disabled=on;}
+async function api(path,data){const method=data===undefined?'GET':'POST';const res=await fetch('/api/v3/'+path,{method,credentials:'same-origin',headers:method==='POST'?{'content-type':'application/json'}:undefined,body:method==='POST'?JSON.stringify(data):undefined,cache:'no-store'});let body;try{body=await res.json();}catch{throw Error('O servidor não respondeu corretamente.');}if(!res.ok)throw Error(body.error||'Falha no sistema.');return body;}
+async function act(fn,button){busy(button,true);try{await fn();}catch(e){notice(e.message,true);}finally{busy(button,false);}}
+function item(label){const el=document.createElement('div');el.className='fileitem';el.textContent=label;return el;}
+function humanDate(s){return s?new Date(s).toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo'}):'—';}
+async function loadRooms(){const r=await api('teacher/rooms'),select=$('roomSelect'),selected=teacherRoom;select.replaceChildren();const opt=document.createElement('option');opt.value='';opt.textContent='Selecione uma turma';select.append(opt);for(const room of r.rooms){const o=document.createElement('option');o.value=room.id;o.textContent=room.title+' · '+room.code;select.append(o);}if(r.rooms.some(x=>x.id===selected))select.value=selected;teacherRoom=select.value;await loadTeacherData();}
+async function loadTeacherData(){teacherRoom=$('roomSelect').value;relayEpoch++;receiver=null;teacherFolder=null;$('edgeStatus').textContent='Selecione a pasta para receber nesta turma.';if(!teacherRoom){$('enrollments').textContent='Selecione a turma.';$('activitiesTeacher').textContent='Selecione a turma.';return;}const [students,activities]=await Promise.all([api('teacher/enrollments?roomId='+encodeURIComponent(teacherRoom)),api('teacher/activities?roomId='+encodeURIComponent(teacherRoom))]);const e=$('enrollments');e.replaceChildren();for(const s of students.students)e.append(item(s.full_name+' · RM '+s.rm+' · '+(s.active?'Ativo':'Inativo')));if(!students.students.length)e.textContent='Nenhum aluno cadastrado.';const d=$('activitiesTeacher');d.replaceChildren();for(const a of activities.activities){const row=document.createElement('div');row.className='fileitem';row.append(document.createTextNode(a.title+' · '+humanDate(a.deadline_at)+' · '+a.status+' '));if(a.status==='DRAFT'){const b=document.createElement('button');b.className='minor';b.type='button';b.textContent='Publicar';b.onclick=()=>act(async()=>{await api('teacher/activities/publish',{roomId:teacherRoom,activityId:a.id});await loadTeacherData();notice('Atividade publicada.');},b);row.append(b);}d.append(row);}if(!activities.activities.length)d.textContent='Nenhuma atividade cadastrada.';}
+$('reloadRooms').onclick=()=>act(loadRooms,$('reloadRooms'));
+$('roomSelect').onchange=()=>act(loadTeacherData);
+$('createRoom').onclick=()=>act(async()=>{const r=await api('teacher/rooms',{title:$('roomTitle').value.trim()});teacherRoom=r.room.id;await loadRooms();const box=$('roomCredentials');box.textContent='Turma: '+r.room.title+' | Código: '+r.room.code+' | Senha: '+r.pin+' — COPIE AGORA (exibição única).';box.classList.remove('hidden');notice('Turma criada.');},$('createRoom'));
+$('addStudent').onclick=()=>act(async()=>{if(!teacherRoom)throw Error('Selecione a turma.');const s=await api('teacher/enrollments',{roomId:teacherRoom,name:$('studentName').value.trim(),rm:$('studentRm').value.trim()});const box=$('studentCredentials');box.textContent='Aluno: '+s.student.full_name+' | RM: '+s.student.rm+' | Código individual: '+s.individualCode+' — ENTREGUE EM PARTICULAR.';box.classList.remove('hidden');$('studentName').value='';$('studentRm').value='';await loadTeacherData();notice('Aluno cadastrado.');},$('addStudent'));
+$('addActivity').onclick=()=>act(async()=>{if(!teacherRoom)throw Error('Selecione a turma.');const stamp=$('activityDeadline').value;if(!stamp)throw Error('Informe o prazo.');const date=new Date(stamp+':00-03:00');if(!Number.isFinite(date.valueOf()))throw Error('Prazo inválido.');await api('teacher/activities',{roomId:teacherRoom,title:$('activityTitle').value.trim(),description:$('activityDescription').value,deadlineAt:date.toISOString(),allowedExtensions:$('activityFormats').value.split(','),acceptLate:$('acceptLate').checked});$('activityTitle').value='';await loadTeacherData();notice('Atividade cadastrada; clique em Publicar.');},$('addActivity'));
+function decode64(base64){const binary=atob(base64),out=new Uint8Array(binary.length);for(let i=0;i<binary.length;i++)out[i]=binary.charCodeAt(i);return out;}
+function encode64(bytes){let s='';for(let i=0;i<bytes.length;i+=8192)s+=String.fromCharCode(...bytes.subarray(i,i+8192));return btoa(s);}
+async function teacherEvent(event,roomId){if(!event||!event.transferId)return;try{if(event.type==='start'){await receiver.start(event);await api('teacher/relay/ready',{roomId,transferId:event.transferId});}
+ else if(event.type==='chunk'){await receiver.append({transferId:event.transferId,seq:event.seq,bytes:decode64(event.data)});await api('teacher/relay/ack',{roomId,transferId:event.transferId,seq:event.seq});}
+ else if(event.type==='finish'){const evidence=await receiver.finish(event.transferId);const r=await api('teacher/relay/complete',{roomId,transferId:event.transferId,evidence});$('edgeStatus').textContent=r.status==='COMMITTED'?'✅ Entrega confirmada — protocolo '+r.protocol:'✅ Arquivo salvo. Aguardando demais arquivos da entrega.';}
+ }catch(e){try{await receiver.abort(event.transferId);}catch{}try{await api('teacher/relay/error',{roomId,transferId:event.transferId,message:e.message});}catch{}$('edgeStatus').textContent='Falha de gravação: '+e.message;notice(e.message,true);}}
+async function teacherLoop(roomId,epoch){while(epoch===relayEpoch&&receiver){try{const response=await api('teacher/relay/poll',{roomId});for(const evt of response.events||[]){if(epoch!==relayEpoch)break;await teacherEvent(evt,roomId);}}catch(e){if(epoch===relayEpoch){$('edgeStatus').textContent='Conexão interrompida: '+e.message;await pause(2500);}}}}
+$('selectFolderV3').onclick=()=>act(async()=>{if(!teacherRoom)throw Error('Selecione a turma primeiro.');if(!window.isSecureContext||typeof window.showDirectoryPicker!=='function')throw Error('Abra a página HTTPS no Edge ou Chrome atualizado.');const folder=await window.showDirectoryPicker({id:'etec-v3-entregas',mode:'readwrite'});if(typeof folder.requestPermission==='function'){const p=await folder.requestPermission({mode:'readwrite'});if(p!=='granted')throw Error('Permissão para gravar arquivos não concedida.');}relayEpoch++;teacherFolder=folder;receiver=EtecV3Edge.createChunkReceiver({rootHandle:folder,subtle:crypto.subtle});const epoch=relayEpoch,roomId=teacherRoom;$('edgeStatus').textContent='✅ Edge pronto. Pasta: '+folder.name+' — mantenha esta página aberta.';void teacherLoop(roomId,epoch);notice('Recebimento de trabalhos ativado.');},$('selectFolderV3'));
+async function studentDashboard(){const [me,activities,receipts]=await Promise.all([api('student/me'),api('student/activities'),api('student/receipts')]);$('studentNameLabel').textContent=me.student.name+' · RM '+me.student.rm;const a=$('studentActivities');a.replaceChildren();for(const x of activities.activities){const row=document.createElement('section');row.className='fileitem';const title=document.createElement('strong');title.textContent=x.title+' — prazo: '+humanDate(x.deadline_at);const p=document.createElement('p');p.textContent=x.description||'Selecione os arquivos para enviar.';const input=document.createElement('input');input.type='file';input.multiple=true;input.accept=(x.allowed_extensions||[]).join(',');const button=document.createElement('button');button.className='primary small';button.type='button';button.textContent='Enviar atividade';const progress=document.createElement('p');progress.className='muted';button.onclick=()=>act(()=>sendSubmission(x,input.files,progress),button);row.append(title,p,input,button,progress);a.append(row);}if(!activities.activities.length)a.textContent='Nenhuma atividade publicada.';const rec=$('receipts');rec.replaceChildren();for(const x of receipts.receipts){const line=item(x.activityTitle+' · Versão V'+String(x.version).padStart(3,'0')+' · '+x.protocol+' · '+humanDate(x.completedAt)+(x.late?' (atrasada)':''));rec.append(line);}if(!receipts.receipts.length)rec.textContent='Nenhum comprovante disponível.';$('studentLoginPanel').classList.add('hidden');$('studentPanel').classList.remove('hidden');}
+async function waitTransfer(transferId,allowed,limit=60000){const until=Date.now()+limit;while(Date.now()<until){const state=await api('student/transfer/status',{transferId});if(state.status==='ERROR')throw Error(state.error||'Transferência cancelada pelo professor.');if(allowed.includes(state.status))return state;await pause(450);}throw Error('O professor não confirmou no prazo.');}
+async function fileHash(file){const data=await file.arrayBuffer(),result=await crypto.subtle.digest('SHA-256',data);return [...new Uint8Array(result)].map(x=>x.toString(16).padStart(2,'0')).join('');}
+async function sendSubmission(activity,fileList,progress){const files=[...fileList];if(!files.length||files.length>10)throw Error('Selecione de 1 a 10 arquivos.');if(files.reduce((sum,f)=>sum+f.size,0)>100*1024*1024||files.some(f=>f.size>40*1024*1024))throw Error('Limite: 40 MB por arquivo e 100 MB por entrega.');progress.textContent='Preparando e verificando arquivos...';const manifest=[];for(const f of files)manifest.push({name:f.name,size:f.size,sha256:await fileHash(f)});const prepared=await api('student/submissions/begin',{activityId:activity.id,requestKey:crypto.randomUUID(),files:manifest});if(prepared.status==='COMMITTED'){progress.textContent='Entrega já concluída: '+prepared.protocol;return;}let protocol=null;for(let i=0;i<files.length;i++){const entry=prepared.files[i],file=files[i];if(!entry||entry.name!==file.name||entry.size!==file.size)throw Error('Manifesto divergente.');const started=await api('student/transfer/begin',{submissionId:prepared.submissionId,fileId:entry.fileId});await waitTransfer(started.transferId,['READY']);let seq=0;for(let pos=0;pos<file.size;pos+=48*1024){const chunk=new Uint8Array(await file.slice(pos,pos+48*1024).arrayBuffer());await api('student/transfer/chunk',{transferId:started.transferId,seq:seq++,data:encode64(chunk)});progress.textContent='Transferindo '+(i+1)+'/'+files.length+' — '+Math.round((pos+chunk.length)/Math.max(1,file.size)*100)+'%';}await api('student/transfer/finish',{transferId:started.transferId});const r=await waitTransfer(started.transferId,['SAVED','COMMITTED'],90000);protocol=r.protocol||null;progress.textContent='Arquivo '+(i+1)+' salvo e verificado.';}if(!protocol)throw Error('Aguarde confirmação do protocolo no Neon.');progress.textContent='✅ Entrega confirmada — '+protocol;notice('Comprovante disponível: '+protocol);await studentDashboard();}
+$('studentLoginForm').onsubmit=e=>{e.preventDefault();void act(async()=>{await api('student/login',{roomCode:$('loginRoomCode').value.trim().toUpperCase(),pin:$('loginPin').value.trim().toUpperCase(),name:$('loginName').value.trim(),rm:$('loginRm').value.trim(),individualCode:$('loginPersonal').value.trim()});$('loginPersonal').value='';await studentDashboard();});};
+$('logoutStudent').onclick=()=>act(async()=>{await api('student/logout',{});$('studentPanel').classList.add('hidden');$('studentLoginPanel').classList.remove('hidden');});$('refreshStudent').onclick=()=>act(studentDashboard,$('refreshStudent'));
+(async()=>{try{const r=await fetch('/api/auth/me',{cache:'no-store'}),identity=r.ok?await r.json():null;if(identity?.role==='teacher'){$('teacherArea').classList.remove('hidden');await loadRooms();}else{$('studentArea').classList.remove('hidden');try{await studentDashboard();}catch{}}}catch(e){notice(e.message,true);}})();

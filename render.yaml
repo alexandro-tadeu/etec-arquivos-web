@@ -15,3 +15,7 @@ services:
         value: admin
       - key: DATABASE_URL
         sync: false
+      - key: ETEC_V3_API_ENABLED
+        value: "false"
+      - key: V3_STUDENT_CODE_HMAC_KEY
+        sync: false

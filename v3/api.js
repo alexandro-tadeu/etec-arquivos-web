@@ -1,20 +1,21 @@
 'use strict';
-// Rotas academicas v3 em modo opt-in; ainda nao implementam o transporte de arquivos.
-// Professor precisa de sessao existente validada no backend; aluno usa cookie HttpOnly.
+// Endpoints academicos v3; habilitacao opt-in, ainda sem rotas para envio de arquivos.
+// O modulo recebe uma identidade do professor validada pelo backend v2.
 const {URL}=require('node:url');
 const COOKIE='etec_v3_student';
 const MAX_BODY=16*1024;
+const MAX_CHUNK_BODY=96*1024;
 const LOGIN_WINDOW=15*60*1000;
 const LOGIN_ATTEMPTS=8;
 function error(status,message){return Object.assign(new Error(message),{status});}
 function json(res,status,data){res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff','referrer-policy':'no-referrer'});res.end(JSON.stringify(data));}
 function cookie(name,value,secure,maxAge){return `${name}=${value}; Path=/api/v3/student; HttpOnly; SameSite=Strict; Max-Age=${maxAge}`+(secure?'; Secure':'');}
-function readCookie(req){const m=String(req.headers.cookie||'').match(/(?:^|;\s*)etec_v3_student=([A-Za-z0-9_-]{43})(?=;|$)/);return m?m[1]:null;}
-async function bodyJson(req){
+function readCookie(req){const str=String(req.headers.cookie||'');const m=str.match(/(?:^|;\s*)etec_v3_student=([A-Za-z0-9_-]{43})(?=;|$)/);return m?m[1]:null;}
+async function bodyJson(req,maxBody=MAX_BODY){
   if(String(req.headers['content-type']||'').split(';')[0].trim().toLowerCase()!=='application/json')throw error(415,'Conteudo JSON obrigatorio.');
-  const length=Number(req.headers['content-length']);if(Number.isFinite(length)&&length>MAX_BODY)throw error(413,'Mensagem excede limite.');
+  const length=Number(req.headers['content-length']);if(Number.isFinite(length)&&length>maxBody)throw error(413,'Mensagem excede limite.');
   let data='',size=0;
-  for await(const chunk of req){size+=chunk.length;if(size>MAX_BODY)throw error(413,'Mensagem excede limite.');data+=chunk;}
+  for await(const chunk of req){size+=chunk.length;if(size>maxBody)throw error(413,'Mensagem excede limite.');data+=chunk;}
   let parsed;try{parsed=JSON.parse(data);}catch{throw error(400,'JSON invalido.');}
   if(!parsed||Array.isArray(parsed)||typeof parsed!=='object')throw error(400,'JSON invalido.');
   return parsed;
@@ -24,11 +25,11 @@ function sameOrigin(req){
   const origin=req.headers.origin;if(!origin||typeof origin!=='string')return false;
   let url;try{url=new URL(origin);}catch{return false;}
   const hostname=String(req.headers.host||'').toLowerCase();
-  // Em producao o navegador acessa HTTPS via proxy de hospedagem.
+  // X-Forwarded-Proto somente quando servidor usa HTTPS em producao e proxy confiavel.
   const secure=process.env.NODE_ENV==='production'||req.socket.encrypted===true;
-  return url.protocol===(secure?'https:':'http:')&&url.host.toLowerCase()===hostname;
+  return (url.protocol===(secure?'https:':'http:') && url.host.toLowerCase()===hostname);
 }
-function createV3Api({store,getPrincipal,submissionStore=null,now=()=>Date.now(),secureCookies=process.env.NODE_ENV==='production'}){
+function createV3Api({store,getPrincipal,submissionStore=null,transferRelay=null,now=()=>Date.now(),secureCookies=process.env.NODE_ENV==='production'}){
  if(!store||typeof store.authenticateStudent!=='function'||typeof getPrincipal!=='function')throw new Error('Dependencias v3 ausentes.');
  const failures=new Map();
  function loginGuard(req,roomCode){
@@ -44,7 +45,7 @@ function createV3Api({store,getPrincipal,submissionStore=null,now=()=>Date.now()
    if(!pathname.startsWith('/api/v3/'))return false;
    if(req.method!=='POST'&&req.method!=='GET')throw error(405,'Metodo nao permitido.');
    if(req.method==='POST'&&!sameOrigin(req))throw error(403,'Origem nao autorizada.');
-   const data=req.method==='POST'?await bodyJson(req):null;
+   const data=req.method==='POST'?await bodyJson(req,pathname==='/api/v3/student/transfer/chunk'?MAX_CHUNK_BODY:MAX_BODY):null;
    if(pathname==='/api/v3/student/login'&&req.method==='POST'){
     const guard=loginGuard(req,data.roomCode);
     let logged;
@@ -65,21 +66,52 @@ function createV3Api({store,getPrincipal,submissionStore=null,now=()=>Date.now()
    if(pathname==='/api/v3/student/submissions/begin'&&req.method==='POST'){
     if(!submissionStore)throw error(503,'Modulo de entregas indisponivel.');
     const actor=await student(req);
-    json(res,200,await submissionStore.begin({studentId:actor.studentId,roomId:actor.roomId,
-      activityId:data.activityId,requestKey:data.requestKey,files:data.files}));return true;
+    const prepared=await submissionStore.begin({studentId:actor.studentId,roomId:actor.roomId,
+      activityId:data.activityId,requestKey:data.requestKey,files:data.files});
+    json(res,200,prepared);return true;
    }
    if(pathname==='/api/v3/teacher/submissions/plan'&&req.method==='POST'){
     if(!submissionStore)throw error(503,'Modulo de entregas indisponivel.');
     const teacherId=await teacher(req);
     json(res,200,await submissionStore.teacherPlan({teacherId,submissionId:data.submissionId}));return true;
    }
-   if(pathname==='/api/v3/teacher/submissions/commit'&&req.method==='POST'){
-    if(!submissionStore)throw error(503,'Modulo de entregas indisponivel.');
-    const teacherId=await teacher(req);
-    // A confirmacao so pode vir da sessao autenticada do professor, nunca do aluno.
-    // A integridade dos bytes gravados deve ser conferida pelo helper Edge.
-    json(res,200,await submissionStore.commit({teacherId,submissionId:data.submissionId,
-      evidence:data.evidence,edgeWriteVerified:true}));return true;
+   // A API nao aceita mais confirmacao fisica direta: exige sequencia controlada pelo relay.
+   if(pathname==='/api/v3/teacher/submissions/commit'&&req.method==='POST')throw error(410,'Use confirmacao da transferencia validada.');
+   if(pathname==='/api/v3/teacher/relay/poll'&&req.method==='POST'){
+    if(!transferRelay)throw error(503,'Transferencias indisponiveis.');
+    json(res,200,await transferRelay.teacherPoll({teacherId:await teacher(req),roomId:data.roomId}));return true;
+   }
+   if(pathname==='/api/v3/teacher/relay/ready'&&req.method==='POST'){
+    if(!transferRelay)throw error(503,'Transferencias indisponiveis.');
+    json(res,200,transferRelay.teacherReady({teacherId:await teacher(req),roomId:data.roomId,transferId:data.transferId}));return true;
+   }
+   if(pathname==='/api/v3/teacher/relay/ack'&&req.method==='POST'){
+    if(!transferRelay)throw error(503,'Transferencias indisponiveis.');
+    json(res,200,transferRelay.teacherAck({teacherId:await teacher(req),roomId:data.roomId,transferId:data.transferId,seq:data.seq}));return true;
+   }
+   if(pathname==='/api/v3/teacher/relay/complete'&&req.method==='POST'){
+    if(!transferRelay)throw error(503,'Transferencias indisponiveis.');
+    json(res,200,await transferRelay.teacherComplete({teacherId:await teacher(req),roomId:data.roomId,transferId:data.transferId,evidence:data.evidence}));return true;
+   }
+   if(pathname==='/api/v3/teacher/relay/error'&&req.method==='POST'){
+    if(!transferRelay)throw error(503,'Transferencias indisponiveis.');
+    json(res,200,transferRelay.teacherError({teacherId:await teacher(req),roomId:data.roomId,transferId:data.transferId,message:data.message}));return true;
+   }
+   if(pathname==='/api/v3/student/transfer/begin'&&req.method==='POST'){
+    if(!transferRelay)throw error(503,'Transferencias indisponiveis.');
+    const actor=await student(req);json(res,200,await transferRelay.beginFile({...actor,submissionId:data.submissionId,fileId:data.fileId}));return true;
+   }
+   if(pathname==='/api/v3/student/transfer/status'&&req.method==='POST'){
+    if(!transferRelay)throw error(503,'Transferencias indisponiveis.');
+    const actor=await student(req);json(res,200,transferRelay.studentStatus({...actor,transferId:data.transferId}));return true;
+   }
+   if(pathname==='/api/v3/student/transfer/chunk'&&req.method==='POST'){
+    if(!transferRelay)throw error(503,'Transferencias indisponiveis.');
+    const actor=await student(req);json(res,200,await transferRelay.studentChunk({...actor,transferId:data.transferId,seq:data.seq,data:data.data}));return true;
+   }
+   if(pathname==='/api/v3/student/transfer/finish'&&req.method==='POST'){
+    if(!transferRelay)throw error(503,'Transferencias indisponiveis.');
+    const actor=await student(req);json(res,200,transferRelay.finishFile({...actor,transferId:data.transferId}));return true;
    }
    if(pathname==='/api/v3/student/receipts'&&req.method==='GET'){
     const s=await student(req);json(res,200,{receipts:await store.listStudentReceipts(s)});return true;

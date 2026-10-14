@@ -10,18 +10,27 @@ const scrypt = promisify(crypto.scrypt);
 const {createUserStore} = require('./user-store');
 const userStore=createUserStore();
 
-// Academic API v3 is opt-in; production stays blocked until integrated technical validation.
-const V3_API_ENABLED=process.env.ETEC_V3_API_ENABLED==='true';
-let v3ApiRequest=null;
-if(V3_API_ENABLED){
-  if(process.env.NODE_ENV==='production')throw new Error('V3 API blocked in production until end-to-end transfer and security tests are complete.');
-  if(!process.env.DATABASE_URL||!process.env.V3_STUDENT_CODE_HMAC_KEY)throw new Error('Missing v3 database/HMAC configuration.');
-  const {Pool}=require('pg');
-  const {createAcademicStore}=require('./v3/academic-store');
-  const {createSubmissionStore}=require('./v3/submission-store');
-  const {createV3Api}=require('./v3/api');
-  const pool=new Pool({connectionString:process.env.DATABASE_URL,max:5,connectionTimeoutMillis:12000,idleTimeoutMillis:30000});
-  v3ApiRequest=createV3Api({store:createAcademicStore({pool,hmacKey:process.env.V3_STUDENT_CODE_HMAC_KEY}),submissionStore:createSubmissionStore(pool),getPrincipal});
+// Rotas academicas v3 somente com habilitacao explicita, DATABASE_URL e chave HMAC.
+// A branch principal da versao 2 continua protegida ate a troca deliberada.
+const V3_API_ENABLED = process.env.ETEC_V3_API_ENABLED === 'true';
+let v3ApiRequest = null;
+let initializeV3 = async () => {};
+if (V3_API_ENABLED) {
+  if (!process.env.DATABASE_URL || !process.env.V3_STUDENT_CODE_HMAC_KEY) {
+    throw new Error('ETEC_V3_API_ENABLED requer DATABASE_URL e V3_STUDENT_CODE_HMAC_KEY.');
+  }
+  const {Pool} = require('pg');
+  const {createAcademicStore} = require('./v3/academic-store');
+  const {createSubmissionStore} = require('./v3/submission-store');
+  const {createV3Api} = require('./v3/api');
+  const {createTransferRelay} = require('./v3/transfer-relay');
+  const pool = new Pool({connectionString:process.env.DATABASE_URL,max:5,connectionTimeoutMillis:12000,idleTimeoutMillis:30000});
+  const store=createAcademicStore({pool,hmacKey:process.env.V3_STUDENT_CODE_HMAC_KEY});
+  const submissionStore=createSubmissionStore(pool);
+  const {ensureV3Schema} = require('./v3/migrate');
+  initializeV3 = () => ensureV3Schema({pool,userStore});
+  v3ApiRequest = createV3Api({store,submissionStore,
+    transferRelay:createTransferRelay({academic:store,submissions:submissionStore}),getPrincipal});
 }
 
 const PORT = Number(process.env.PORT || 3000);
@@ -153,9 +162,8 @@ async function parseBody(req) {
 }
 function serveStatic(req, res, pathname) {
   const files={'/':'index.html','/index.html':'index.html','/admin':'admin.html','/professor':'professor.html','/gestao':'gestao.html','/gestao.js':'gestao.js','/app.js':'app.js','/admin.js':'admin.js','/style.css':'style.css'};
-  if (V3_API_ENABLED && process.env.NODE_ENV !== 'production') {
-    files['/atividades'] = 'atividades.html';
-    files['/atividades.js'] = 'atividades.js';
+  if(V3_API_ENABLED){
+    files['/atividades']='atividades.html';files['/atividades.js']='atividades.js';files['/edge-storage.js']='edge-storage.js';
   }
   const filename = files[pathname];
   if (!filename) return error(res,404,'Nao encontrado.');
@@ -327,11 +335,11 @@ async function api(req,res,pathname) {
 
 async function handleRequest(req,res) {
   const pathname=new URL(req.url,'http://localhost').pathname;
-  if(pathname.startsWith('/api/v3/')){
-    if(!v3ApiRequest)return error(res,404,'Nao encontrado.');
+  if(pathname.startsWith('/api/v3/')) {
+    if (!v3ApiRequest) return error(res,404,'Nao encontrado.');
     return v3ApiRequest(req,res,pathname);
   }
-  if(req.method==='GET'&&pathname==='/healthz')return sendJson(res,200,{ok:true,rooms:rooms.size,storage:userStore.mode});
+  if(req.method==='GET'&&pathname==='/healthz')return sendJson(res,200,{ok:true,rooms:rooms.size,storage:userStore.mode,v3Enabled:V3_API_ENABLED});
   if(req.method==='GET') {
     if(pathname==='/professor' || pathname==='/gestao'){
       const principal=await getPrincipal(req);
@@ -354,8 +362,18 @@ const server=http.createServer((req,res)=>{
   });
 });
 server.requestTimeout=60000;
-server.listen(PORT,'0.0.0.0',()=>{
-  if(ADMIN_PASSWORD.length<12)console.warn('Configure ADMIN_PASSWORD (12+ caracteres) nas variaveis de ambiente.');
-  if(userStore.mode==='unconfigured')console.warn('CADASTRO DE PROFESSORES BLOQUEADO: Configure DATABASE_URL com um PostgreSQL persistente.');
-  console.log(`ETEC Web multi-professor: http://127.0.0.1:${PORT} (HTTPS via Render, armazenamento: ${userStore.mode})`);
+async function boot() {
+  if (V3_API_ENABLED) {
+    await initializeV3();
+    console.log('ETEC Web v3: esquema PostgreSQL verificado.');
+  }
+  server.listen(PORT,'0.0.0.0',()=>{
+    if(ADMIN_PASSWORD.length<12)console.warn('Configure ADMIN_PASSWORD (12+ caracteres) nas variaveis de ambiente.');
+    if(userStore.mode==='unconfigured')console.warn('CADASTRO DE PROFESSORES BLOQUEADO: Configure DATABASE_URL com um PostgreSQL persistente.');
+    console.log(`ETEC Web multi-professor: http://127.0.0.1:${PORT} (HTTPS via Render, armazenamento: ${userStore.mode}, v3: ${V3_API_ENABLED ? 'ativa' : 'inativa'})`);
+  });
+}
+boot().catch(err=>{
+  console.error('Falha na inicializacao das tabelas da v3:',err.code||err.message);
+  process.exitCode=1;
 });

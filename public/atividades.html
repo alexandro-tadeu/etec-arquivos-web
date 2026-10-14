@@ -1,81 +1,15 @@
 <!doctype html>
-<html lang="pt-BR">
-<head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#1454a0">
-<title>ETEC • Turmas e Atividades</title>
-<link rel="stylesheet" href="/style.css"><script src="/atividades.js" defer></script>
-</head>
-<body>
-<header class="topbar"><div class="wrap topinner"><div class="logo">📚</div><div><strong>ETEC • Arquivos da Aula</strong><small>Turmas e atividades</small></div><a class="top-exit" href="/">Início</a></div></header>
-<main class="wrap">
-<section class="hero"><h1>Minha turma</h1><p>O mesmo sistema simples: o professor organiza a turma e o aluno acompanha suas atividades.</p></section>
-<div id="notice" class="notice">O professor mantém a pasta física autorizada no Edge. Os registros da turma ficam no banco de dados.</div>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ETEC Web 3.0 • Turmas e Entregas</title><link rel="stylesheet" href="/style.css"><script src="/edge-storage.js" defer></script><script src="/atividades.js" defer></script></head>
+<body><header class="topbar"><div class="wrap topinner"><div class="logo">📚</div><div><strong>ETEC • Arquivos da Aula</strong><small>Versão 3.0 • Turmas e Entregas</small></div><a class="top-exit" href="/">Início</a></div></header>
+<main class="wrap"><section class="hero"><h1>Turmas e atividades</h1><p>O compartilhamento da versão 2.0 com novas entregas identificadas e comprovantes.</p></section>
 <div id="message" class="flash hidden" role="alert"></div>
 <section id="teacherArea" class="hidden">
-<section class="panel"><div class="pane">
-<h2>1. Minhas turmas</h2>
-<div class="teacher-form-grid">
-<div><label for="roomTitle">Nome da turma</label><input id="roomTitle" maxlength="120" placeholder="Ex.: 2º DS — Banco de Dados"></div>
-<div><label for="roomSelect">Turma selecionada</label><select id="roomSelect"><option value="">Escolha uma turma</option></select></div>
-</div>
-<div class="actions"><button class="primary" id="createRoom" type="button">Criar turma</button><button class="minor" id="refreshRooms" type="button">Atualizar</button></div>
-<div class="notice hidden" id="newRoomCredentials" aria-live="polite">
-<strong>Dados para entrar na turma — exibidos somente agora</strong>
-<p id="roomCredentialsText"></p><button id="copyRoomCredentials" type="button" class="minor">Copiar código e senha</button>
-</div>
-</div></section>
-<section class="panel"><div class="pane">
-<h2>2. Alunos</h2><p>Cadastre um aluno por vez. O código individual aparece somente após o cadastro.</p>
-<div class="teacher-form-grid">
-<div><label for="studentName">Nome completo</label><input id="studentName" maxlength="180" autocomplete="off" placeholder="Nome e sobrenome"></div>
-<div><label for="studentRm">RM (com zeros iniciais)</label><input id="studentRm" maxlength="20" inputmode="numeric" autocomplete="off" placeholder="Ex.: 001245"></div>
-</div>
-<button class="primary" id="enrollStudent" type="button">Cadastrar aluno</button>
-<div class="notice hidden" id="newStudentCredentials" aria-live="polite"><strong>Código individual — copie e entregue em particular</strong><p id="studentCredentialsText"></p><button class="minor" type="button" id="copyStudentCredentials">Copiar dados de acesso</button></div>
-<div class="scrolltable"><table class="teachertable"><thead><tr><th>Aluno</th><th>RM</th><th>Situação</th></tr></thead><tbody id="studentRows"><tr><td colspan="3">Selecione uma turma.</td></tr></tbody></table></div>
-</div></section>
-<section class="panel"><div class="pane">
-<h2>3. Atividades</h2>
-<div class="teacher-form-grid">
-<div><label for="activityTitle">Título da atividade</label><input id="activityTitle" maxlength="140" placeholder="Ex.: Lista de exercícios SQL"></div>
-<div><label for="activityDeadline">Prazo de entrega</label><input id="activityDeadline" type="datetime-local"></div>
-<div class="full"><label for="activityDescription">Orientações aos alunos</label><textarea id="activityDescription" rows="3" maxlength="10000" placeholder="Explique o que deve ser entregue."></textarea></div>
-<div><label for="activityFormats">Formatos aceitos</label><select id="activityFormats"><option value=".pdf">PDF</option><option value=".pdf,.docx,.odt">Documentos (PDF, DOCX, ODT)</option><option value=".pdf,.zip">PDF e ZIP</option><option value=".pdf,.docx,.png,.jpg,.jpeg,.zip,.txt,.sql">Formatos comuns</option></select></div>
-<div><label><input id="activityAcceptLate" type="checkbox"> Aceitar entregas atrasadas</label></div>
-</div>
-<button class="primary" id="createActivity" type="button">Criar atividade</button>
-<div class="scrolltable"><table class="teachertable"><thead><tr><th>Atividade</th><th>Prazo</th><th>Estado</th><th>Ação</th></tr></thead><tbody id="activityRows"><tr><td colspan="4">Selecione uma turma.</td></tr></tbody></table></div>
-</div></section>
-<section class="panel"><div class="pane">
-<h2>4. Pasta de entregas</h2>
-<p>A gravação real continuará na pasta escolhida pelo professor no Microsoft Edge, com confirmação e verificação de integridade.</p>
-<p class="warn">A interface de transferência real dos arquivos ainda está em integração. Não use este ambiente experimental para receber trabalhos oficiais.</p>
-<a class="minor" href="/professor">Voltar ao compartilhamento da versão 2.0</a>
-</div></section>
+<section class="panel"><div class="pane"><h2>1. Criar e selecionar turma</h2><label>Nome da turma <input id="roomTitle" placeholder="Ex.: 2º DS — Banco de Dados" maxlength="120"></label><button type="button" class="primary" id="createRoom">Criar turma</button><p id="roomCredentials" class="notice hidden" aria-live="polite"></p><label>Turma atual <select id="roomSelect"><option value="">Selecione</option></select></label><button class="minor" type="button" id="reloadRooms">Atualizar turmas</button></div></section>
+<section class="panel"><div class="pane"><h2>2. Cadastrar alunos</h2><div class="teacher-form-grid"><label>Nome completo <input id="studentName" maxlength="180" placeholder="Nome e sobrenome"></label><label>RM <input id="studentRm" maxlength="20" inputmode="numeric" placeholder="Ex.: 001234"></label></div><button type="button" id="addStudent" class="primary">Cadastrar aluno</button><p id="studentCredentials" class="notice hidden" aria-live="polite"></p><div id="enrollments" class="filelist">Selecione a turma.</div></div></section>
+<section class="panel"><div class="pane"><h2>3. Publicar atividades</h2><div class="teacher-form-grid"><label>Título <input id="activityTitle" maxlength="140" placeholder="Lista de exercícios SQL"></label><label>Prazo <input id="activityDeadline" type="datetime-local"></label></div><label>Orientações <textarea id="activityDescription" rows="3" maxlength="10000"></textarea></label><label>Formatos permitidos <select id="activityFormats"><option value=".pdf">PDF</option><option value=".pdf,.docx,.odt">PDF, Word e ODT</option><option value=".pdf,.zip">PDF e ZIP</option><option value=".pdf,.docx,.odt,.zip,.png,.jpg,.jpeg,.txt,.sql">Formatos comuns</option></select></label><label class="form-inline"><input id="acceptLate" type="checkbox"> Aceitar entrega atrasada</label><button id="addActivity" type="button" class="primary">Criar atividade</button><div id="activitiesTeacher" class="filelist">Selecione a turma.</div></div></section>
+<section class="panel"><div class="pane"><h2>4. Receber arquivos no Edge</h2><p>Escolha a pasta da aula no computador. Os trabalhos serão salvos automaticamente em uma subpasta privada <code>ENTREGAS</code>. Não feche esta página enquanto os alunos enviarem arquivos.</p><button id="selectFolderV3" class="primary" type="button">📂 Selecionar pasta e receber entregas</button><p id="edgeStatus" class="notice">Aguardando seleção da pasta.</p><p><a class="minor" href="/professor">Compartilhar materiais pela versão 2.0</a></p></div></section>
 </section>
-<section id="studentArea" class="hidden">
-<section class="panel" id="studentLoginPanel"><div class="pane">
-<h2>Entrar na minha turma</h2><p>Use o código e a senha da sala, além dos seus dados cadastrados pelo professor.</p>
-<form id="studentLoginForm">
-<div class="teacher-form-grid">
-<div><label for="loginRoomCode">Código da turma</label><input id="loginRoomCode" required maxlength="10" autocomplete="off" placeholder="Código de 10 caracteres"></div>
-<div><label for="loginRoomPin">Senha da turma</label><input id="loginRoomPin" required maxlength="16" autocomplete="off" placeholder="Senha entregue pelo professor"></div>
-<div><label for="loginStudentName">Nome completo</label><input id="loginStudentName" required autocomplete="name" maxlength="180"></div>
-<div><label for="loginStudentRm">RM</label><input id="loginStudentRm" required maxlength="20" inputmode="numeric" autocomplete="off"></div>
-<div class="full"><label for="loginIndividualCode">Meu código individual</label><input id="loginIndividualCode" required maxlength="256" type="password" autocomplete="off" placeholder="Código pessoal entregue pelo professor"></div>
-</div>
-<button class="primary" type="submit" id="studentLoginButton">Entrar na turma</button>
-</form>
-</div></section>
-<section class="panel hidden" id="studentDashboard"><div class="pane">
-<div class="headline"><h2>Minhas atividades</h2><button class="minor" type="button" id="studentLogout">Sair</button></div>
-<p id="studentIdentity" class="muted"></p>
-<div id="studentActivities" class="filelist">Buscando atividades…</div>
-<h2>Meus comprovantes</h2><p class="hint">Somente registros de entregas confirmadas. Nenhum arquivo de outro aluno fica disponível aqui.</p>
-<div id="studentReceipts" class="filelist">Buscando comprovantes…</div>
-<p class="warn">A transferência de novos arquivos será habilitada após a homologação do envio e da gravação no Edge.</p>
-</div></section>
-</section>
-</main><footer class="wrap foot">ETEC Web v3 • Interface simples • Ambiente de desenvolvimento</footer>
-</body></html>
+<section id="studentArea" class="hidden"><section id="studentLoginPanel" class="panel"><div class="pane"><h2>Entrar na turma</h2><form id="studentLoginForm"><div class="teacher-form-grid"><label>Código da turma <input id="loginRoomCode" required maxlength="10" autocomplete="off"></label><label>Senha da turma <input id="loginPin" required maxlength="16" autocomplete="off"></label><label>Nome completo <input id="loginName" required maxlength="180" autocomplete="name"></label><label>RM <input id="loginRm" required maxlength="20" autocomplete="off" inputmode="numeric"></label><label class="full">Código individual <input id="loginPersonal" required type="password" maxlength="256" autocomplete="off"></label></div><button type="submit" class="primary">Entrar</button></form></div></section>
+<section id="studentPanel" class="panel hidden"><div class="pane"><div class="headline"><h2>Minhas atividades</h2><button type="button" class="minor" id="logoutStudent">Sair</button></div><p id="studentNameLabel" class="muted"></p><div id="studentActivities" class="filelist">Carregando...</div><h2>Meus comprovantes</h2><div id="receipts" class="filelist">Ainda não há entregas confirmadas.</div><button type="button" id="refreshStudent" class="minor">Atualizar</button></div></section></section>
+</main><footer class="wrap foot">ETEC Web v3.0 • Sem instalação • Arquivos físicos permanecem no Edge do professor</footer></body></html>

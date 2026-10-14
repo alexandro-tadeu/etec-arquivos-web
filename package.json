@@ -1,8 +1,8 @@
 {
   "name": "etec-compartilhamento-web",
-  "version": "2.0.0",
+  "version": "3.0.0-preview",
   "private": true,
-  "description": "ETEC Web multiusuario: admin cadastra professores, salas independentes por usuario e PostgreSQL persistente",
+  "description": "ETEC Web v3: v2 simples + turmas individuais, atividades e transferencia fisica ao Edge",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

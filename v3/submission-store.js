@@ -106,6 +106,17 @@ function createSubmissionStore(pool){
    return {submissionId,version:versionLabel(s.version),protocol,status:'COMMITTED',completedAt:now,late:result.late};
   });
  }
- return {begin,teacherPlan,commit};
+ async function studentPlan({studentId,roomId,submissionId}){
+  const r=await pool.query(`SELECT s.id,s.status,s.manifest FROM etec_v3_submission_versions s
+    JOIN etec_v3_activities a ON a.id=s.activity_id
+    JOIN etec_v3_enrollments e ON e.id=s.enrollment_id AND e.active=true AND e.room_id=a.room_id
+    JOIN etec_v3_rooms room ON room.id=a.room_id AND room.status='OPEN'
+    JOIN etec_teachers t ON t.id=room.teacher_id AND t.active=true
+    WHERE s.id=$1 AND e.id=$2 AND room.id=$3`,[uuid(submissionId),uuid(studentId),uuid(roomId)]);
+  ensure(r.rowCount===1,'Entrega nao encontrada.',404);
+  ensure(r.rows[0].status==='STAGING','Entrega nao disponivel para transferencia.',409);
+  return {submissionId,files:r.rows[0].manifest.map(f=>({fileId:f.fileId,name:f.name,size:f.size,sha256:f.sha256}))};
+ }
+ return {begin,teacherPlan,studentPlan,commit};
 }
 module.exports={createSubmissionStore,policyFiles,sameManifest,privatePath,validateEvidence};
