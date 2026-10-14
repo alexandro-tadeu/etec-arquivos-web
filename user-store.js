@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-function publicTeacher(t) { return {id:t.id,username:t.username,name:t.name,school:t.school,active:t.active,createdAt:t.created_at,version:t.version}; }
+function publicTeacher(t) { return {id:t.id,username:t.username,name:t.name,school:t.school,active:t.active,createdAt:t.created_at,version:t.version,roomsCreated:Number(t.rooms_created||0)}; }
 function createUserStore() {
   const dburl = process.env.DATABASE_URL;
   if (dburl) {
@@ -16,12 +16,15 @@ function createUserStore() {
       if (!initialized) initialized = pool.query(`CREATE TABLE IF NOT EXISTS etec_teachers (
         id text PRIMARY KEY, username text NOT NULL UNIQUE, name text NOT NULL, school text NOT NULL DEFAULT '',
         salt text NOT NULL, password_hash text NOT NULL, active boolean NOT NULL DEFAULT true,
-        version integer NOT NULL DEFAULT 1, created_at timestamptz NOT NULL DEFAULT now())`).catch(err=>{initialized=null;throw err;});
+        version integer NOT NULL DEFAULT 1, created_at timestamptz NOT NULL DEFAULT now())`)
+        .then(()=>pool.query('ALTER TABLE etec_teachers ADD COLUMN IF NOT EXISTS rooms_created bigint NOT NULL DEFAULT 0'))
+        .catch(err=>{initialized=null;throw err;});
       await initialized;
     }
     return {
       mode:'postgres', ready,
       async list() {await ready(); const r=await pool.query('SELECT * FROM etec_teachers ORDER BY name ASC');return r.rows.map(publicTeacher);},
+      async incrementRoomCount(id){await ready();const r=await pool.query('UPDATE etec_teachers SET rooms_created=rooms_created+1 WHERE id=$1 RETURNING rooms_created',[id]);if(r.rowCount!==1)throw Object.assign(new Error('Professor nao encontrado.'),{status:404});return Number(r.rows[0].rooms_created);},
       async byUsername(username) {await ready();const r=await pool.query('SELECT * FROM etec_teachers WHERE username=$1',[username]);return r.rows[0]||null;},
       async byId(id) {await ready();const r=await pool.query('SELECT * FROM etec_teachers WHERE id=$1',[id]);return r.rows[0]||null;},
       async create(t) {await ready();const r=await pool.query('INSERT INTO etec_teachers(id,username,name,school,salt,password_hash,active,version) VALUES ($1,$2,$3,$4,$5,$6,true,1) RETURNING *',[t.id,t.username,t.name,t.school,t.salt,t.password_hash]);return publicTeacher(r.rows[0]);},
@@ -32,7 +35,7 @@ function createUserStore() {
   // Sem DATABASE_URL no Render: NAO cadastrar professores com armazenamento efemero.
   if (process.env.NODE_ENV === 'production') {
     const unavailable=async()=>{throw Object.assign(new Error('Configure DATABASE_URL com um PostgreSQL persistente para cadastrar professores. Consulte o GUIA-DE-ATUALIZACAO.md.'),{status:503});};
-    return {mode:'unconfigured',ready:async()=>{},list:unavailable,byId:unavailable,byUsername:unavailable,create:unavailable,setPassword:unavailable,setActive:unavailable};
+    return {mode:'unconfigured',ready:async()=>{},list:unavailable,byId:unavailable,byUsername:unavailable,create:unavailable,setPassword:unavailable,setActive:unavailable,incrementRoomCount:unavailable};
   }
   // Desenvolvimento e testes: arquivo fora do Git, gravado com rename atomico.
   const filename=process.env.TEACHERS_FILE || path.join(__dirname,'users.local.json');
@@ -40,6 +43,7 @@ function createUserStore() {
   async function save(users){fs.mkdirSync(path.dirname(filename),{recursive:true});const tmp=filename+'.'+process.pid+'.tmp';fs.writeFileSync(tmp,JSON.stringify(users,null,2),{mode:0o600});fs.renameSync(tmp,filename);}
   return {
     mode:'local-development',ready:async()=>{},
+    async incrementRoomCount(id){const all=await read(),t=all.find(x=>x.id===id);if(!t)throw Object.assign(new Error('Professor nao encontrado.'),{status:404});t.rooms_created=Number(t.rooms_created||0)+1;await save(all);return t.rooms_created;},
     async list(){return (await read()).map(publicTeacher);},
     async byId(id){return (await read()).find(t=>t.id===id)||null;},
     async byUsername(username){return (await read()).find(t=>t.username===username)||null;},

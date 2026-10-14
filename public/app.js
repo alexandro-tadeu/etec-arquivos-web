@@ -232,10 +232,10 @@ function csvCell(value){
   return '"'+v.replace(/"/g,'""')+'"';
 }
 function saveReportCsv(report){
-  const header=['Nome completo','Status','Registro','Entrada (São Paulo)','Saída (São Paulo)',
+  const header=['Professor responsável','Nome completo','Status','Registro','Entrada (São Paulo)','Saída (São Paulo)',
     'Data do registro','Hora do registro','Motivo da saída','Pasta / caminho do arquivo'];
   const lines=[header.map(csvCell).join(';')];
-  for(const values of roomCsvRows(report))lines.push(values.map(csvCell).join(';'));
+  for(const values of roomCsvRows(report))lines.push([report.teacherName||'Professor',...values].map(csvCell).join(';'));
   const csv='\uFEFF'+lines.join('\r\n')+'\r\n';
   const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
   const anchor=document.createElement('a');anchor.href=url;
