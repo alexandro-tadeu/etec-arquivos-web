@@ -10,11 +10,11 @@ const scrypt = promisify(crypto.scrypt);
 const {createUserStore} = require('./user-store');
 const userStore=createUserStore();
 
-// Academic API v3 is opt-in and MUST NOT be enabled in production until MFA is enforced.
+// Academic API v3 is opt-in; production stays blocked until integrated technical validation.
 const V3_API_ENABLED=process.env.ETEC_V3_API_ENABLED==='true';
 let v3ApiRequest=null;
 if(V3_API_ENABLED){
-  if(process.env.NODE_ENV==='production')throw new Error('V3 API blocked in production until mandatory admin MFA and full homologation.');
+  if(process.env.NODE_ENV==='production')throw new Error('V3 API blocked in production until end-to-end transfer and security tests are complete.');
   if(!process.env.DATABASE_URL||!process.env.V3_STUDENT_CODE_HMAC_KEY)throw new Error('Missing v3 database/HMAC configuration.');
   const {Pool}=require('pg');
   const {createAcademicStore}=require('./v3/academic-store');
