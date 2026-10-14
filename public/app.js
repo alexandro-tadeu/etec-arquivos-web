@@ -21,6 +21,59 @@ const state = {role:null,token:null,alive:false,room:null,pin:null,dir:null,path
 let latestRoomReport = null;
 let requestCounter = 0;
 let navigationSerial = 0;
+const LEASE_WARNING_MS=5*60*1000;
+let warnedLease=false;
+function leaseElements(){
+  const teacher=state.role==='teacher';
+  return {box:$(teacher?'teacherSessionLease':'studentSessionLease'),
+    timer:$(teacher?'teacherCountdown':'studentCountdown'),
+    hint:$(teacher?'teacherCountdownHint':'studentCountdownHint'),
+    button:$(teacher?'renewTeacherSession':'renewStudentSession')};
+}
+function setLeaseExpiration(value){
+  state.expiresAt=Date.parse(value);
+  warnedLease=false;
+  updateLeaseClock();
+}
+function updateLeaseClock(){
+  if(!state.expiresAt||!state.role)return;
+  const ui=leaseElements();
+  if(!ui.timer)return;
+  const remaining=Math.max(0,state.expiresAt-Date.now());
+  const seconds=Math.ceil(remaining/1000);
+  ui.timer.textContent=String(Math.floor(seconds/60)).padStart(2,'0')+':'+String(seconds%60).padStart(2,'0');
+  ui.box.classList.toggle('warning',remaining>0&&remaining<=LEASE_WARNING_MS);
+  ui.box.classList.toggle('expired',remaining===0);
+  ui.button.disabled=!state.alive||remaining===0;
+  if(remaining===0){
+    ui.hint.textContent='Tempo encerrado. Entre novamente para abrir uma nova sessão.';
+    if(state.alive){
+      state.alive=false;
+      rejectJobs('Sessão encerrada após 50 minutos sem renovação.');
+      flash(state.role==='teacher'?'50 minutos encerrados. Abra outra sala para continuar.':
+        'Sua sessão terminou. Informe seus dados para acessar novamente.',true);
+      if(state.role==='student'){hide('studentPanel');show('startPanel');$('joinForm').querySelector('button').disabled=false;}
+      else{hide('teacherPanel');show('startPanel');$('selectFolder').disabled=false;}
+    }
+  }else if(remaining<=LEASE_WARNING_MS){
+    ui.hint.textContent='Faltam menos de 5 minutos. Clique em Renovar antes que o prazo termine.';
+    if(!warnedLease){warnedLease=true;flash('Atenção: faltam menos de 5 minutos para sua sessão terminar.',true);}
+  }else{
+    ui.hint.textContent='Sessão de até 50 minutos. A renovação depende de um clique e da validade da sala.';
+  }
+}
+setInterval(updateLeaseClock,1000);
+async function renewLease(button){
+  if(!state.alive||!state.token)throw new Error('Sessão encerrada.');
+  button.disabled=true;
+  try{
+    const updated=await api('renew',{token:state.token});
+    setLeaseExpiration(updated.expiresAt);
+    flash('Sessão renovada com sucesso.');
+  }finally{updateLeaseClock();}
+}
+$('renewTeacherSession')?.addEventListener('click',e=>renewLease(e.currentTarget).catch(err=>flash(err.message,true)));
+$('renewStudentSession')?.addEventListener('click',e=>renewLease(e.currentTarget).catch(err=>flash(err.message,true)));
 
 function flash(message, bad=false) {const e=$('message');e.textContent=message;e.classList.remove('hidden');e.classList.toggle('bad',bad);}
 function clearFlash(){ $('message').classList.add('hidden'); }
@@ -53,7 +106,10 @@ async function poll(){
     }catch(err){
       if(!state.alive)return;
       flash('Conexao com o servidor interrompida: '+err.message,true);
-      if(/Sessao expirada|sala foi encerrada/i.test(err.message)){rejectJobs('O compartilhamento terminou.');state.alive=false;break;}
+      if(/Sessao expirada|sala foi encerrada|tempo da sala|tempo da sessao/i.test(err.message)){
+        rejectJobs('O compartilhamento terminou.');
+        state.alive=false;state.expiresAt=Date.now();updateLeaseClock();break;
+      }
       await new Promise(resolve=>setTimeout(resolve,2200));
     }
   }
@@ -70,6 +126,7 @@ $('selectFolder')?.addEventListener('click',async()=>{
   try{
     const room=await api('create',{});
     state.role='teacher';state.token=room.token;state.room=room.code;state.pin=room.pin;state.dir=handle;state.alive=true;
+    setLeaseExpiration(room.expiresAt);
     hide('startPanel');show('teacherPanel');
     $('roomCode').textContent=room.code;$('roomPin').textContent=room.pin;
     $('folderLabel').textContent='Pasta local: '+handle.name;
@@ -201,7 +258,7 @@ $('stopShare')?.addEventListener('click',async()=>{
   if(!confirm('Encerrar a sala? O CSV incluirá a saída dos alunos conectados.'))return;
   try{
     const result=await api('close',{token:state.token});
-    state.alive=false;state.token=null;
+    state.alive=false;state.token=null;state.expiresAt=0;
     saveReportCsv(result.report);
     location.href=location.pathname;
   }catch(e){flash('Não foi possível concluir o encerramento ou exportar a lista: '+e.message,true);}
@@ -315,12 +372,13 @@ $('joinForm')?.addEventListener('submit',async(ev)=>{
   try{
     const result=await api('join',{code,pin,name});
     state.role='student';state.token=result.token;state.room=code;state.alive=true;state.path=[];
+    setLeaseExpiration(result.expiresAt);
     hide('startPanel');show('studentPanel');$('studentRoom').textContent=result.name+' — Sala '+code;
     poll();await listFolder();
   }catch(err){flash(err.message,true);button.disabled=false;}
 });
 $('leaveRoom')?.addEventListener('click',async()=>{
-  const old=state.token;state.alive=false;state.token=null;
+  const old=state.token;state.alive=false;state.token=null;state.expiresAt=0;
   try{await api('close',{token:old,reason:'LEFT'})}catch{}
   location.href=location.pathname;
 });

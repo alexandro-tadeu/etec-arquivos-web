@@ -18,3 +18,15 @@
 .room-log-table th{background:#f1f6fc;color:#294761;position:sticky;top:0}
 .room-log-table td:last-child{min-width:220px;overflow-wrap:anywhere}
 @media(max-width:620px){.room-log{padding:14px}.room-log-actions{width:100%}.room-log-actions button{flex:1}}
+
+/* Ciclos de sessao de 50 minutos, sem alterar o restante da interface v2 */
+.session-lease{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;
+  background:#f1f7ff;border:1px solid #bfdcf7;padding:15px 22px;margin:14px 20px;border-radius:11px}
+.session-lease strong{font-size:16px;color:#174977}
+.session-lease p{margin:5px 0 0;color:#607b94;font-size:12px;line-height:1.5}
+.session-lease [role="timer"]{font-family:Consolas,monospace;font-size:25px;font-variant-numeric:tabular-nums}
+.session-lease.warning{background:#fff6de;border-color:#e9bb56}
+.session-lease.warning [role="timer"]{color:#9e5900}
+.session-lease.expired{background:#fff0f0;border-color:#e9a8a8}
+.session-lease.expired [role="timer"]{color:#bb2020}
+@media(max-width:640px){.session-lease{margin:12px;padding:14px}.session-lease button{width:100%}}
