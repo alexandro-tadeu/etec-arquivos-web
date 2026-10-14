@@ -74,7 +74,7 @@ $('switchToTeacher')?.addEventListener('click',async()=>{
 $('logout').addEventListener('click',async()=>{try{await post('admin/logout');location.replace('/admin');}catch(e){flash(e.message,true);}});
 // Monitoramento administrativo separado do login das salas.
 let adminRooms=[];
-let selectedTab='professores';
+let selectedTab='cadastro';
 function makeCell(value){const cell=document.createElement('td');cell.textContent=String(value??'—');return cell;}
 function timeBR(v){return v?new Date(v).toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo'}):'—';}
 function renderDashboard(items){
@@ -136,17 +136,22 @@ function saveUsersCsv(){
  document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),10000);
 }
 function setAdminTab(tab){
+ if(!['cadastro','professores','usuarios'].includes(tab))return;
  selectedTab=tab;
- const users=tab==='usuarios';
- $('panelProfessores').classList.toggle('hidden',users);
- $('panelUsuarios').classList.toggle('hidden',!users);
- $('tabProfessores').classList.toggle('selected',!users);
- $('tabUsuarios').classList.toggle('selected',users);
- $('tabProfessores').setAttribute('aria-selected',String(!users));
- $('tabUsuarios').setAttribute('aria-selected',String(users));
- if(users)loadUsers().catch(e=>flash(e.message,true));
- else loadDashboard().catch(e=>flash(e.message,true));
+ for(const name of ['cadastro','professores','usuarios']){
+  const suffix={cadastro:'Cadastro',professores:'Professores',usuarios:'Usuarios'}[name];
+  const selected=tab===name;
+  $('panel'+suffix).classList.toggle('hidden',!selected);
+  $('tab'+suffix).classList.toggle('selected',selected);
+  $('tab'+suffix).setAttribute('aria-selected',String(selected));
+  $('tab'+suffix).tabIndex=selected?0:-1;
+ }
+ // Consulta apenas a guia solicitada, sem repetir requisicoes SQL entre guias.
+ if(tab==='cadastro')refresh().catch(e=>flash(e.message,true));
+ else if(tab==='professores')loadDashboard().catch(e=>flash(e.message,true));
+ else loadUsers().catch(e=>flash(e.message,true));
 }
+$('tabCadastro').addEventListener('click',()=>setAdminTab('cadastro'));
 $('tabProfessores').addEventListener('click',()=>setAdminTab('professores'));
 $('tabUsuarios').addEventListener('click',()=>setAdminTab('usuarios'));
 $('refreshDashboard').addEventListener('click',()=>loadDashboard().catch(e=>flash(e.message,true)));
@@ -157,10 +162,12 @@ refresh().catch(e=>flash(e.message,true));
 setInterval(()=>{
  if(document.visibilityState==='hidden')return;
  if(selectedTab==='usuarios')loadUsers().catch(e=>flash(e.message,true));
- else loadDashboard().catch(e=>flash(e.message,true));
+ else if(selectedTab==='professores')loadDashboard().catch(e=>flash(e.message,true));
+ else refresh().catch(e=>flash(e.message,true));
 },20000);
 document.addEventListener('visibilitychange',()=>{
  if(document.visibilityState!=='visible')return;
  if(selectedTab==='usuarios')loadUsers().catch(e=>flash(e.message,true));
- else loadDashboard().catch(e=>flash(e.message,true));
+ else if(selectedTab==='professores')loadDashboard().catch(e=>flash(e.message,true));
+ else refresh().catch(e=>flash(e.message,true));
 });
