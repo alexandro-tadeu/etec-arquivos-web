@@ -33,6 +33,10 @@ function fixture(){
     const student=[...enrollments.values()].find(e=>e.room_id===p[0]&&e.rm===p[1]&&e.normalized_name===p[2]&&e.active);
     return student?{rowCount:1,rows:[student]}:{rowCount:0,rows:[]};
    }
+   if(sql.includes('UPDATE etec_v3_enrollments')&&sql.includes('SET code_digest=')){
+    const e=enrollments.get(p[0]);if(!e||e.room_id!==p[1]||!e.active)return {rowCount:0,rows:[]};
+    e.code_digest=p[2];e.code_version++;e.current_session_id=null;return {rowCount:1,rows:[{id:e.id,room_id:e.room_id,full_name:e.full_name,rm:e.rm,code_version:e.code_version}]};
+   }
    if(sql.includes('UPDATE etec_v3_student_sessions SET revoked_at')){
     for(const s of sessions.values())if((p.length===2&&s.id===p[0]&&s.enrollment_id===p[1])||(p.length===1&&s.enrollment_id===p[0]))s.revoked_at=Date.now();
     return {rowCount:1,rows:[]};
@@ -91,6 +95,20 @@ test('student enrollment uses individualized secret and one persistent active se
  await store.deactivateStudent({teacherId:TEACHER,roomId:room.id,studentId:student.id});
  await assert.rejects(store.authorizeStudentSession(s2.sessionToken),/Credenciais invalidas/);
  await assert.rejects(store.authenticateStudent(credentials),/Credenciais invalidas/);
+});
+test('teacher can replace a lost code, invalidating the old code and session',async()=>{
+ const {store}=fixture();
+ const {room,pin}=await store.createRoom({teacherId:TEACHER,title:'Turma SQL'});
+ const {student,individualCode}=await store.enrollStudent({teacherId:TEACHER,roomId:room.id,name:'Ana Maria Souza',rm:'0021'});
+ const credentials={roomCode:room.code,pin,name:'Ana Maria Souza',rm:'0021',individualCode};
+ const old=await store.authenticateStudent(credentials);
+ await assert.rejects(store.resetStudentCode({teacherId:ANOTHER,roomId:room.id,studentId:student.id}),/sem permissao/);
+ const changed=await store.resetStudentCode({teacherId:TEACHER,roomId:room.id,studentId:student.id});
+ assert.notEqual(changed.individualCode,individualCode);
+ await assert.rejects(store.authorizeStudentSession(old.sessionToken),/Credenciais invalidas/);
+ await assert.rejects(store.authenticateStudent(credentials),/Credenciais invalidas/);
+ const next=await store.authenticateStudent({...credentials,individualCode:changed.individualCode});
+ assert.equal((await store.authorizeStudentSession(next.sessionToken)).studentId,student.id);
 });
 test('activities start as drafts and can only be published by their room teacher',async()=>{
  const {store}=fixture();

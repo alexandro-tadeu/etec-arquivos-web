@@ -18,6 +18,7 @@ async function fixture(){
   async listEnrollments(){return [{id:'s1',rm:'0007'}];},
   async enrollStudent(x){return {student:{name:x.name,rm:x.rm},individualCode:'ONE-TIME'};},
   async deactivateStudent(){return {deactivated:true};},
+  async resetStudentCode(x){return {student:{id:x.studentId},individualCode:'ROTATED-ONLY-ONCE'};},
   async listTeacherActivities(){return [{id:'act1'}];},
   async createActivity(x){return {id:'act1',title:x.title,status:'DRAFT'};},
   async publishActivity(){return {id:'act1',status:'PUBLISHED'};}
@@ -45,7 +46,10 @@ test('v3 academic API separates teacher from student and uses HttpOnly session c
   assert.equal((await request(f.base,'/api/v3/student/me','GET',undefined,{cookie})).data.student.rm,'0007');
   assert.equal((await request(f.base,'/api/v3/student/activities','GET',undefined,{cookie})).data.activities[0].title,'SQL');
   assert.equal((await request(f.base,'/api/v3/student/receipts','GET',undefined,{cookie})).data.receipts[0].protocol,'REC-001');
+  const rotated=await request(f.base,'/api/v3/teacher/enrollments/reset-code','POST',{roomId:'r1',studentId:'s1'});
+  assert.equal(rotated.status,200);assert.equal(rotated.data.individualCode,'ROTATED-ONLY-ONCE');
   f.setRole('admin');assert.equal((await request(f.base,'/api/v3/teacher/rooms')).status,403);
+  assert.equal((await request(f.base,'/api/v3/teacher/enrollments/reset-code','POST',{roomId:'r1',studentId:'s1'})).status,403);
   f.setRole(null);assert.equal((await request(f.base,'/api/v3/teacher/rooms','POST',{title:'Teste'})).status,403);
   const logout=await request(f.base,'/api/v3/student/logout','POST',{}, {cookie});assert.equal(logout.status,200);assert.match(logout.cookie,/Max-Age=0/);
  }finally{await f.close();}

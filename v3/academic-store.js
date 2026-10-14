@@ -190,7 +190,24 @@ function createAcademicStore({pool,hmacKey}){
     const r=await pool.query("SELECT r.teacher_id FROM etec_v3_rooms r JOIN etec_teachers t ON t.id=r.teacher_id AND t.active=true WHERE r.id=$1 AND r.status='OPEN'",[verifyUUID(roomId)]);
     ensure(r.rowCount===1,'Turma sem professor ativo.',503);return r.rows[0].teacher_id;
   }
-  return {createRoom,enrollStudent,authenticateStudent,authorizeStudentSession,revokeStudentSession,
+
+  async function resetStudentCode({teacherId,roomId,studentId}){
+    verifyUUID(studentId);
+    const individualCode=createStudentSecret();
+    return transaction(async db=>{
+      await requireRoomOwner(db,roomId,teacherId);
+      const r=await db.query(`UPDATE etec_v3_enrollments
+        SET code_digest=$3,code_version=code_version+1,current_session_id=NULL,updated_at=clock_timestamp()
+        WHERE id=$1 AND room_id=$2 AND active=true
+        RETURNING id,room_id,full_name,rm,code_version`,
+        [studentId,roomId,digest(key,'student-code',individualCode)]);
+      ensure(r.rowCount===1,'Aluno nao encontrado ou inativo.',404);
+      await db.query(`UPDATE etec_v3_student_sessions SET revoked_at=clock_timestamp()
+        WHERE enrollment_id=$1 AND revoked_at IS NULL`,[studentId]);
+      return {student:r.rows[0],individualCode};
+    });
+  }
+  return {createRoom,enrollStudent,resetStudentCode,authenticateStudent,authorizeStudentSession,revokeStudentSession,
     deactivateStudent,createActivity,publishActivity,listTeacherRooms,listEnrollments,listTeacherActivities,
     listStudentActivities,listStudentReceipts,assertRoomOwner,ownerForRoom};
 }

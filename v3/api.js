@@ -129,6 +129,10 @@ function createV3Api({store,getPrincipal,submissionStore=null,transferRelay=null
    if(pathname==='/api/v3/teacher/enrollments'&&req.method==='POST'){
     const teacherId=await teacher(req);json(res,201,await store.enrollStudent({teacherId,roomId:data.roomId,name:data.name,rm:data.rm}));return true;
    }
+   if(pathname==='/api/v3/teacher/enrollments/reset-code'&&req.method==='POST'){
+    const teacherId=await teacher(req);
+    json(res,200,await store.resetStudentCode({teacherId,roomId:data.roomId,studentId:data.studentId}));return true;
+   }
    if(pathname==='/api/v3/teacher/enrollments/deactivate'&&req.method==='POST'){
     const teacherId=await teacher(req);json(res,200,await store.deactivateStudent({teacherId,roomId:data.roomId,studentId:data.studentId}));return true;
    }
