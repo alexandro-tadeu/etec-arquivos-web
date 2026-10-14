@@ -74,6 +74,32 @@ function createAcademicStore({pool,hmacKey}){
    if(r.rowCount!==1)throw fail('Atividade nao publicavel.',409);return r.rows[0];
   });
  }
- return {createRoom,enrollStudent,authenticateStudent,authorizeStudentSession,deactivateStudent,createActivity,publishActivity};
+
+ async function revokeStudentSession(sessionToken){
+  if(typeof sessionToken!=='string'||!/^[A-Za-z0-9_-]{43}$/.test(sessionToken))return {revoked:false};
+  return transaction(async db=>{
+   const result=await db.query('UPDATE etec_v3_student_sessions SET revoked_at=clock_timestamp() WHERE session_digest=$1 AND revoked_at IS NULL RETURNING id,enrollment_id',[mac('student-session',sessionToken)]);
+   if(result.rowCount===0)return {revoked:false};
+   await db.query('UPDATE etec_v3_enrollments SET current_session_id=NULL WHERE id=$1 AND current_session_id=$2',[result.rows[0].enrollment_id,result.rows[0].id]);
+   return {revoked:true};
+  });
+ }
+ async function listTeacherRooms({teacherId}){
+  const r=await pool.query("SELECT r.id,r.title,r.code,r.status,r.created_at FROM etec_v3_rooms r JOIN etec_teachers t ON t.id=r.teacher_id AND t.active=true WHERE r.teacher_id=$1 ORDER BY r.created_at DESC LIMIT 100",[requireUuid(teacherId)]);return r.rows;
+ }
+ async function listEnrollments({teacherId,roomId}){
+  const r=await pool.query("SELECT e.id,e.full_name,e.rm,e.active,e.created_at FROM etec_v3_enrollments e JOIN etec_v3_rooms r ON r.id=e.room_id JOIN etec_teachers t ON t.id=r.teacher_id AND t.active=true WHERE r.id=$1 AND r.teacher_id=$2 ORDER BY e.full_name ASC LIMIT 1000",[requireUuid(roomId),requireUuid(teacherId)]);return r.rows;
+ }
+ async function listTeacherActivities({teacherId,roomId}){
+  const r=await pool.query("SELECT a.id,a.title,a.description,a.status,a.deadline_at,a.allowed_extensions,a.accept_late,a.published_at FROM etec_v3_activities a JOIN etec_v3_rooms r ON r.id=a.room_id JOIN etec_teachers t ON t.id=r.teacher_id AND t.active=true WHERE a.room_id=$1 AND r.teacher_id=$2 ORDER BY a.created_at DESC LIMIT 500",[requireUuid(roomId),requireUuid(teacherId)]);return r.rows;
+ }
+ async function listStudentActivities({studentId,roomId}){
+  const r=await pool.query("SELECT a.id,a.title,a.description,a.status,a.deadline_at,a.allowed_extensions,a.accept_late FROM etec_v3_activities a JOIN etec_v3_enrollments e ON e.room_id=a.room_id JOIN etec_v3_rooms r ON r.id=a.room_id AND r.status='OPEN' WHERE e.id=$1 AND e.room_id=$2 AND e.active=true AND a.status='PUBLISHED' ORDER BY a.deadline_at ASC LIMIT 500",[requireUuid(studentId),requireUuid(roomId)]);return r.rows;
+ }
+ async function listStudentReceipts({studentId,roomId}){
+  const r=await pool.query("SELECT sv.id,sv.version,sv.protocol,sv.completed_at,sv.is_late,sv.manifest,a.id AS activity_id,a.title AS activity_title FROM etec_v3_submission_versions sv JOIN etec_v3_activities a ON a.id=sv.activity_id JOIN etec_v3_enrollments e ON e.id=sv.enrollment_id AND e.room_id=a.room_id AND e.active=true JOIN etec_v3_rooms room ON room.id=e.room_id AND room.status='OPEN' WHERE sv.enrollment_id=$1 AND e.room_id=$2 AND sv.status='COMMITTED' ORDER BY sv.completed_at DESC LIMIT 500",[requireUuid(studentId),requireUuid(roomId)]);
+  return r.rows.map(row=>({submissionId:row.id,activityId:row.activity_id,activityTitle:row.activity_title,version:row.version,protocol:row.protocol,completedAt:row.completed_at,late:row.is_late,files:(Array.isArray(row.manifest)?row.manifest:[]).map(file=>({name:file.name,size:file.size}))}));
+ }
+ return {createRoom,enrollStudent,authenticateStudent,authorizeStudentSession,revokeStudentSession,deactivateStudent,createActivity,publishActivity,listTeacherRooms,listEnrollments,listTeacherActivities,listStudentActivities,listStudentReceipts};
 }
 module.exports={createAcademicStore};
