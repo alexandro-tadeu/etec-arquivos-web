@@ -36,3 +36,9 @@
 #panelUsuarios .scrolltable{max-height:65vh;overflow:auto}
 #panelUsuarios .teachertable{min-width:1050px}
 #panelUsuarios .teachertable td{overflow-wrap:anywhere}
+
+/* Gestao com tres guias: formulario, docentes online e acompanhamento de alunos. */
+.admin-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));}
+.admin-tabs .tab{min-width:0;padding:15px 12px;line-height:1.4;}
+.admin-tabs .tab:focus-visible{outline:3px solid #186cc7;outline-offset:-4px;}
+@media(max-width:600px){.admin-tabs{grid-template-columns:1fr}.admin-tabs .tab{padding:12px}}

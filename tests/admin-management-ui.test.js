@@ -8,7 +8,7 @@ test('user tab and refresh hooks are installed even when old switch-to-teacher c
  const elements=new Map();
  function el(id){
   if(!elements.has(id)){
-   const s=new Set(id==='panelUsuarios'?['hidden']:id==='tabProfessores'?['selected']:[]);
+   const s=new Set(['panelUsuarios','panelProfessores'].includes(id)?['hidden']:id==='tabCadastro'?['selected']:[]);
    const node={
     id,children:[],handlers:new Map(),classList:{add:x=>s.add(x),remove:x=>s.delete(x),toggle:(x,on)=>on?s.add(x):s.delete(x),contains:x=>s.has(x)},
     setAttribute(){},addEventListener(name,cb){this.handlers.set(name,cb)},replaceChildren(){this.children=[]},
@@ -40,19 +40,47 @@ test('user tab and refresh hooks are installed even when old switch-to-teacher c
  assert.equal(requests.filter(s=>s.endsWith('teachers/list')).length,1);
  assert.equal(requests.some(s=>s.endsWith('teachers/dashboard')),false,'initial render must not run duplicate query');
  assert.equal(el('professorDashboard').children.length,1);
+ assert.equal(el('panelCadastro').classList.contains('hidden'),false);
+ assert.equal(el('panelProfessores').classList.contains('hidden'),true);
+ const openMonitor=el('tabProfessores').handlers.get('click');
+ assert.equal(typeof openMonitor,'function');
+ openMonitor();
+ assert.equal(el('panelProfessores').classList.contains('hidden'),false);
+ assert.equal(el('panelCadastro').classList.contains('hidden'),true);
+ assert.equal(el('panelUsuarios').classList.contains('hidden'),true);
+ for(let i=0;i<10;i++)await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(requests.filter(s=>s.endsWith('teachers/dashboard')).length,1);
  const click=el('tabUsuarios').handlers.get('click');
  assert.equal(typeof click,'function');
  click();
  assert.equal(el('panelUsuarios').classList.contains('hidden'),false);
  assert.equal(el('panelProfessores').classList.contains('hidden'),true);
+ assert.equal(el('panelCadastro').classList.contains('hidden'),true);
  for(let i=0;i<10;i++)await new Promise(resolve=>setImmediate(resolve));
  assert.equal(requests.filter(s=>s.endsWith('teachers/users')).length,1);
+ el('tabCadastro').handlers.get('click')();
+ assert.equal(el('panelCadastro').classList.contains('hidden'),false);
+ assert.equal(el('panelUsuarios').classList.contains('hidden'),true);
+ assert.equal(el('panelProfessores').classList.contains('hidden'),true);
 });
 test('admin monitor APIs stay restricted to admin and share one teacher snapshot function',()=>{
  assert.match(server,/function summarizeTeachers\(teachers\)/);
  assert.match(server,/pathname==='\/api\/admin\/teachers\/list'/);
  assert.match(server,/pathname==='\/api\/admin\/teachers\/users'/);
  assert.match(server,/admin\.role!=='admin'/);
- for(const name of ['tabProfessores','tabUsuarios','panelProfessores','panelUsuarios','adminStudentEvents'])
+ for(const name of ['tabCadastro','tabProfessores','tabUsuarios','panelCadastro','panelProfessores','panelUsuarios','adminStudentEvents'])
   assert.ok(html.includes('id="'+name+'"'),name);
+});
+
+test('cada uma das tres guias tem conteudo exclusivo e formulario preservado',()=>{
+ const cadastro=html.slice(html.indexOf('<section id="panelCadastro"'),html.indexOf('<section id="panelProfessores"'));
+ const online=html.slice(html.indexOf('<section id="panelProfessores"'),html.indexOf('<section id="panelUsuarios"'));
+ const usuarios=html.slice(html.indexOf('<section id="panelUsuarios"'));
+ assert.match(cadastro,/id="teacherForm"/);
+ assert.match(cadastro,/id="teachers"/);
+ assert.doesNotMatch(cadastro,/id="professorDashboard"/);
+ assert.match(online,/id="professorDashboard"/);
+ assert.doesNotMatch(online,/id="teacherForm"/);
+ assert.match(usuarios,/id="adminStudentEvents"/);
+ assert.match(usuarios,/id="exportUsers"/);
 });
