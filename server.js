@@ -103,7 +103,7 @@ async function getPrincipal(req) {
   if(!/^[A-Za-z0-9_-]{40,100}$/.test(sid))return null;
   const session=loginSessions.get(sid);
   if(!session)return null;
-  if(session.expires<Date.now() && !(session.role==='teacher' && hasActiveRoom(sid))){
+  if(session.expires<Date.now() && !(hasActiveRoom(sid))){
     loginSessions.delete(sid);
     return null;
   }
@@ -202,7 +202,7 @@ function cleanExpired() {
   }
   for (const [key, state] of failures) if (now-state.since > 60000) failures.delete(key);
   for (const [sid, session] of loginSessions) {
-    if (session.expires <= now && !(session.role==='teacher' && hasActiveRoom(sid))) {
+    if (session.expires <= now && !(hasActiveRoom(sid))) {
       loginSessions.delete(sid);
     }
   }
