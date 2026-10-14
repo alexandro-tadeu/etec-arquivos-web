@@ -43,8 +43,10 @@ const MAX_STUDENTS = 45;
 // Dados temporarios em memoria: o professor deve exportar o CSV da sala.
 const MAX_QUEUE = 100;
 const POLL_MS = 23000;
-const TEACHER_GRACE_MS = 65000;
-const ROOM_EXPIRY_MS = 5 * 60 * 60 * 1000;
+// Perda temporaria da conexao do professor bloqueia novas transferencias,
+// mas nao encerra a sala. Somente encerramento explicito ou revogacao de acesso.
+const TEACHER_GRACE_MS = process.env.NODE_ENV==='test' && Number(process.env.ETEC_TEST_GRACE_MS)>0
+  ? Number(process.env.ETEC_TEST_GRACE_MS) : 65000;
 const rooms = new Map();
 const sessions = new Map();
 const failures = new Map();
@@ -52,7 +54,11 @@ const failures = new Map();
 const ADMIN_USER = (process.env.ADMIN_USER || 'admin').toLowerCase();
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
 const LOGIN_COOKIE = 'etec_login';
-const LOGIN_TTL_MS = 8 * 60 * 60 * 1000;
+// Sessao de login se renova no poll do professor para nao expirar durante a aula.
+const LOGIN_TTL_MS = process.env.NODE_ENV==='test' && Number(process.env.ETEC_TEST_LOGIN_TTL_MS)>0
+  ? Number(process.env.ETEC_TEST_LOGIN_TTL_MS) : 8 * 60 * 60 * 1000;
+const CLEAN_INTERVAL_MS = process.env.NODE_ENV==='test' && Number(process.env.ETEC_TEST_CLEAN_MS)>0
+  ? Number(process.env.ETEC_TEST_CLEAN_MS) : 15000;
 const LOGIN_LOCK_MS = 5 * 60 * 1000;
 const loginSessions = new Map();
 const loginFailures = new Map();
@@ -64,6 +70,10 @@ async function hashPassword(password,salt=crypto.randomBytes(16).toString('hex')
 async function verifyPassword(password,teacher) {
   const raw=await scrypt(password,Buffer.from(teacher.salt,'hex'),64);
   return crypto.timingSafeEqual(raw,Buffer.from(teacher.password_hash,'hex'));
+}
+function hasActiveRoom(sid) {
+  for(const room of rooms.values())if(room.ownerSid===sid)return true;
+  return false;
 }
 function closeRoomsBySession(sid) {
   for (const room of [...rooms.values()]) if(room.ownerSid===sid) finishRoom(room);
@@ -89,7 +99,10 @@ async function getPrincipal(req) {
   if(!/^[A-Za-z0-9_-]{40,100}$/.test(sid))return null;
   const session=loginSessions.get(sid);
   if(!session)return null;
-  if(session.expires<Date.now()){loginSessions.delete(sid);closeRoomsBySession(sid);return null;}
+  if(session.expires<Date.now() && !(session.role==='teacher' && hasActiveRoom(sid))){
+    loginSessions.delete(sid);
+    return null;
+  }
   if(session.role==='teacher'){
     const record=await userStore.byId(session.id);
     if(!record||!record.active||record.version!==session.version){loginSessions.delete(sid);closeRoomsBySession(sid);return null;}
@@ -167,11 +180,13 @@ function disconnectStudent(room,student,reason){
 }
 function makeSession(role, room) { const sess = {role,room,token:token(),id:token().slice(0,12),queue:[],waiter:null,timer:null,lastPoll:Date.now()}; sessions.set(sess.token, sess); return sess; }
 function roomOwner(room){return room.ownerId;}
+// Este teste indica disponibilidade do navegador Edge, NAO termino da sala.
 function isAlive(room) { return room && rooms.has(room.code) && Date.now() - room.teacher.lastPoll < TEACHER_GRACE_MS; }
 function cleanExpired() {
   const now = Date.now();
   for (const room of [...rooms.values()]) {
-    if (now-room.created > ROOM_EXPIRY_MS || now-room.teacher.lastPoll > TEACHER_GRACE_MS) {finishRoom(room);continue;}
+    // A sala permanece cadastrada mesmo com o professor temporariamente offline.
+    // Alunos sem atividade continuam tendo suas proprias sessoes expiradas por inatividade.
     for (const student of [...room.students.values()]) {
       if(now-student.lastPoll > 85000) {
         // Horario estimado da desconexao: a aba nao confirmou o fechamento.
@@ -181,11 +196,13 @@ function cleanExpired() {
   }
   for (const [key, state] of failures) if (now-state.since > 60000) failures.delete(key);
   for (const [sid, session] of loginSessions) {
-    if (session.expires <= now) {loginSessions.delete(sid);closeRoomsBySession(sid);}
+    if (session.expires <= now && !(session.role==='teacher' && hasActiveRoom(sid))) {
+      loginSessions.delete(sid);
+    }
   }
   for (const [key, state] of loginFailures) if (now-state.since > LOGIN_LOCK_MS) loginFailures.delete(key);
 }
-setInterval(cleanExpired,15000).unref();
+setInterval(cleanExpired,CLEAN_INTERVAL_MS).unref();
 async function parseBody(req) {
   const contentType = String(req.headers['content-type'] || '');
   if (!contentType.startsWith('application/json')) throw Object.assign(new Error('Requisicao JSON necessaria.'), {status:415});
@@ -322,6 +339,14 @@ async function api(req,res,pathname) {
   }
   if (pathname === '/api/poll') {
     sess.lastPoll=Date.now();
+    if(sess.role==='teacher'){
+      // Sliding cookie: refresh only while professor's browser maintains the live room.
+      const principal=loginSessions.get(sess.ownerSid);
+      if(principal){
+        principal.expires=Date.now()+LOGIN_TTL_MS;
+        res.setHeader('set-cookie',loginCookie(principal.sid,req,Math.ceil(LOGIN_TTL_MS/1000)));
+      }
+    }
     if (sess.waiter) {const old=sess.waiter;sess.waiter=null;clearTimeout(sess.timer);sendJson(old,200,{events:[]});}
     if(sess.queue.length) return sendJson(res,200,{events:sess.queue.splice(0)});
     sess.waiter=res;
