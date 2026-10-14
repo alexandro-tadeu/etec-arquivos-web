@@ -153,6 +153,10 @@ async function parseBody(req) {
 }
 function serveStatic(req, res, pathname) {
   const files={'/':'index.html','/index.html':'index.html','/admin':'admin.html','/professor':'professor.html','/gestao':'gestao.html','/gestao.js':'gestao.js','/app.js':'app.js','/admin.js':'admin.js','/style.css':'style.css'};
+  if (V3_API_ENABLED && process.env.NODE_ENV !== 'production') {
+    files['/atividades'] = 'atividades.html';
+    files['/atividades.js'] = 'atividades.js';
+  }
   const filename = files[pathname];
   if (!filename) return error(res,404,'Nao encontrado.');
   const type = filename.endsWith('.js') ? 'text/javascript; charset=utf-8' : filename.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/html; charset=utf-8';
