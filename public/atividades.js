@@ -32,4 +32,22 @@ async function sendSubmission(activity,fileList,progress){const files=[...fileLi
 $('studentLoginForm').onsubmit=e=>{e.preventDefault();void act(async()=>{await api('student/login',{roomCode:$('loginRoomCode').value.trim().toUpperCase(),pin:$('loginPin').value.trim().toUpperCase(),name:$('loginName').value.trim(),rm:$('loginRm').value.trim(),individualCode:$('loginPersonal').value.trim()});$('loginPersonal').value='';await studentDashboard();});};
 $('logoutStudent').onclick=()=>act(async()=>{await api('student/logout',{});$('studentPanel').classList.add('hidden');$('studentLoginPanel').classList.remove('hidden');});$('refreshStudent').onclick=()=>act(studentDashboard,$('refreshStudent'));
 $('switchToTeacher').onclick=()=>act(async()=>{const r=await fetch('/api/admin/logout',{method:'POST',credentials:'same-origin',headers:{'content-type':'application/json'},body:'{}'});if(!r.ok)throw Error('Não foi possível sair da conta administrativa.');location.assign('/admin');},$('switchToTeacher'));
-(async()=>{try{const r=await fetch('/api/auth/me',{cache:'no-store',credentials:'same-origin'}),identity=r.ok?await r.json():null;if(identity?.role==='teacher'){$('teacherArea').classList.remove('hidden');await loadRooms();}else if(identity?.role==='admin'){$('adminArea').classList.remove('hidden');}else{$('studentArea').classList.remove('hidden');try{await studentDashboard();}catch{}}}catch(e){notice(e.message,true);}})();
+(async()=>{try{
+ const here=location.pathname;
+ const nav=$('navHome');if(nav){nav.href=here==='/professor'?'/professor':'/usuario';nav.textContent=here==='/professor'?'Painel do professor':'Portal do aluno';}
+ if(here==='/usuario'||here==='/'){ // area de alunos, independente de um login docente no mesmo navegador
+  $('studentArea').classList.remove('hidden');
+  try{await studentDashboard();}catch{}
+  return;
+ }
+ const r=await fetch('/api/auth/me',{cache:'no-store',credentials:'same-origin'});
+ const identity=r.ok?await r.json():null;
+ if(identity?.role==='teacher'){
+  $('teacherArea').classList.remove('hidden');
+  await loadRooms();
+ }else if(identity?.role==='admin'){
+  location.replace('/admin');
+ }else{
+  location.replace('/entrar');
+ }
+}catch(e){notice(e.message,true);}})();

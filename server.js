@@ -161,7 +161,7 @@ async function parseBody(req) {
   catch { throw Object.assign(new Error('JSON invalido.'), {status:400}); }
 }
 function serveStatic(req, res, pathname) {
-  const files={'/':'index.html','/index.html':'index.html','/admin':'admin.html','/professor':'professor.html','/compartilhar':'professor.html','/gestao':'gestao.html','/gestao.js':'gestao.js','/app.js':'app.js','/admin.js':'admin.js','/style.css':'style.css'};
+  const files={'/':'index.html','/index.html':'index.html','/admin':'admin.html','/professor':'professor.html','/compartilhar':'professor.html','/materiais':'index.html','/entrar':'admin.html','/gestao':'gestao.html','/gestao.js':'gestao.js','/app.js':'app.js','/admin.js':'admin.js','/style.css':'style.css'};
   if(V3_API_ENABLED){
     files['/atividades']='atividades.html';files['/atividades.js']='atividades.js';files['/edge-storage.js']='edge-storage.js';
   }
@@ -194,7 +194,7 @@ async function api(req,res,pathname) {
     if(!session){limit.count++;loginFailures.set(key,limit);return error(res,401,'Usuario ou senha incorretos, ou conta desativada.');}
     loginFailures.delete(key);loginSessions.set(session.sid,session);
     res.setHeader('set-cookie',loginCookie(session.sid,req,LOGIN_TTL_MS/1000));
-    return sendJson(res,200,{ok:true,role:session.role,next:session.role==='admin'?'/gestao':'/professor'});
+    return sendJson(res,200,{ok:true,role:session.role,next:session.role==='admin'?(V3_API_ENABLED?'/admin':'/gestao'):'/professor'});
   }
   if(pathname==='/api/auth/me') {
     const session=await getPrincipal(req);
@@ -340,20 +340,48 @@ async function handleRequest(req,res) {
     return v3ApiRequest(req,res,pathname);
   }
   if(req.method==='GET'&&pathname==='/healthz')return sendJson(res,200,{ok:true,rooms:rooms.size,storage:userStore.mode,v3Enabled:V3_API_ENABLED});
+  // A interface docente faz GET /api/auth/me para descobrir o perfil; antes recebia 404
+  // e mostrava incorretamente o formulario de aluno mesmo com sessao administrativa ativa.
+  if(req.method==='GET'&&pathname==='/api/auth/me'){
+    const principal=await getPrincipal(req);
+    if(!principal)return error(res,401,'Entre com seu usuario e senha.');
+    return sendJson(res,200,{role:principal.role,name:principal.name,storage:userStore.mode});
+  }
   if(req.method==='GET') {
-    if(pathname==='/professor' || pathname==='/compartilhar' || pathname==='/gestao'){
-      const principal=await getPrincipal(req);
-      if(!principal)return redirect(res,'/admin');
-      if(pathname==='/gestao'&&principal.role!=='admin')return redirect(res,'/professor');
-      // A entrada principal do docente e a gestao v3.
-      // O compartilhamento temporario v2 fica disponivel em /compartilhar.
-      if(pathname==='/professor'&&V3_API_ENABLED){
-        return redirect(res,principal.role==='admin'?'/gestao':'/atividades');
+    if(V3_API_ENABLED){
+      if(pathname==='/'||pathname==='/index.html')return redirect(res,'/usuario');
+      if(pathname==='/usuario')return serveStatic(req,res,'/atividades');
+      if(pathname==='/atividades'){
+        const principal=await getPrincipal(req);
+        return redirect(res,principal?.role==='admin'?'/admin':principal?.role==='teacher'?'/professor':'/usuario');
       }
-    }
-    if(pathname==='/admin'){
-      const principal=await getPrincipal(req);
-      if(principal)return redirect(res,principal.role==='admin'?'/gestao':'/professor');
+      if(pathname==='/entrar'){
+        const principal=await getPrincipal(req);
+        return principal?redirect(res,principal.role==='admin'?'/admin':'/professor'):serveStatic(req,res,'/entrar');
+      }
+      if(pathname==='/admin'){
+        const principal=await getPrincipal(req);
+        if(!principal)return serveStatic(req,res,'/admin'); // tela de login
+        return principal.role==='admin'?serveStatic(req,res,'/gestao'):redirect(res,'/professor');
+      }
+      if(pathname==='/gestao')return redirect(res,'/admin');
+      if(pathname==='/professor'||pathname==='/compartilhar'){
+        const principal=await getPrincipal(req);
+        if(!principal)return redirect(res,'/entrar');
+        if(principal.role!=='teacher')return redirect(res,'/admin');
+        return serveStatic(req,res,pathname==='/professor'?'/atividades':'/compartilhar');
+      }
+    }else{
+      // Rotas anteriores continuam funcionais quando o modulo v3 estiver desabilitado.
+      if(pathname==='/professor'||pathname==='/compartilhar'||pathname==='/gestao'){
+        const principal=await getPrincipal(req);
+        if(!principal)return redirect(res,'/admin');
+        if(pathname==='/gestao'&&principal.role!=='admin')return redirect(res,'/professor');
+      }
+      if(pathname==='/admin'){
+        const principal=await getPrincipal(req);
+        if(principal)return redirect(res,principal.role==='admin'?'/gestao':'/professor');
+      }
     }
     return serveStatic(req,res,pathname);
   }

@@ -43,6 +43,7 @@ test('site, sala, protecao, lista, download e upload em eventos intermediados',a
   const professorBlocked=await fetch(base+'/professor',{redirect:'manual'});
   assert.equal(professorBlocked.status,302);assert.equal(professorBlocked.headers.get('location'),'/admin');
   assert.equal((await fetch(base+'/admin')).status,200);
+  assert.equal((await fetch(base+'/api/auth/me')).status,401);
   assert.equal((await fetch(base+'/professor.html')).status,404);
   assert.equal((await post('create',{}, {anonymous:true})).code,403);
   assert.equal((await post('admin/login',{username:'admin',password:'errada'})).code,401);
@@ -50,6 +51,9 @@ test('site, sala, protecao, lista, download e upload em eventos intermediados',a
   const login=await post('admin/login',{username:'admin',password:TEST_PASSWORD});
   assert.equal(login.code,200);assert.match(login.cookie,/HttpOnly/);assert.match(login.cookie,/SameSite=Strict/);
   adminCookie=login.cookie.split(';')[0];
+  const profile=await fetch(base+'/api/auth/me',{headers:{cookie:adminCookie}});
+  assert.equal(profile.status,200);
+  assert.equal((await profile.json()).role,'admin');
   assert.equal((await fetch(base+'/professor',{headers:{cookie:adminCookie}})).status,200);
   assert.equal((await fetch(base+'/admin',{headers:{cookie:adminCookie},redirect:'manual'})).status,302);
   const created=await post('create',{});assert.equal(created.code,200);
