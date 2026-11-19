@@ -9,6 +9,7 @@ const {promisify} = require('node:util');
 const scrypt = promisify(crypto.scrypt);
 const {createUserStore} = require('./user-store');
 const userStore=createUserStore();
+const {DEFAULT_TRANSFER,BLOCK_OPTIONS,validateTransfer}=require('./transfer-settings');
 
 // Rotas academicas v3 somente com habilitacao explicita, DATABASE_URL e chave HMAC.
 // A branch principal da versao 2 continua protegida ate a troca deliberada.
@@ -36,10 +37,9 @@ if (V3_API_ENABLED) {
 const PORT = Number(process.env.PORT || 3000);
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const MAX_BODY = 180 * 1024;
-const DOWNLOAD_BLOCK_BYTES=768*1024;
-const DOWNLOAD_BASE64_MAX=4*Math.ceil(DOWNLOAD_BLOCK_BYTES/3);
+const DOWNLOAD_BLOCK_MAX=1024*1024;
+const DOWNLOAD_BASE64_MAX=4*Math.ceil(DOWNLOAD_BLOCK_MAX/3);
 const MAX_SEND_BODY=DOWNLOAD_BASE64_MAX+8192;
-const MAX_FILE = 40 * 1024 * 1024;
 const MAX_ROOMS = 30;
 const MAX_STUDENTS = 45;
 // Cada entrada e saida recebe um registro; nao ha limite numerico predefinido.
@@ -293,6 +293,12 @@ async function api(req,res,pathname) {
     res.setHeader('set-cookie',loginCookie('',req,0));
     return sendJson(res,200,{ok:true});
   }
+  if(pathname==='/api/admin/transfer/get'||pathname==='/api/admin/transfer/save'){
+    const admin=await getPrincipal(req);
+    if(!admin||admin.role!=='admin')return error(res,403,'Apenas o administrador pode alterar configuracoes de transferencia.');
+    const settings=pathname.endsWith('/save')?await userStore.setTransferSettings(validateTransfer(body)):await userStore.getTransferSettings();
+    return sendJson(res,200,{settings,defaults:DEFAULT_TRANSFER,blockOptions:BLOCK_OPTIONS,maxFileMiB:100});
+  }
   if(pathname.startsWith('/api/admin/teachers/')) {
     const admin=await getPrincipal(req);
     if(!admin||admin.role!=='admin')return error(res,403,'Apenas o administrador pode gerenciar professores.');
@@ -370,14 +376,15 @@ async function api(req,res,pathname) {
     const principal=await getPrincipal(req);
     if(!principal)return error(res,403,'Entre como professor ou administrador em /admin.');
     if(rooms.size >= MAX_ROOMS)return error(res,503,'Limite de salas simultaneas atingido.');
+    const transfer=await userStore.getTransferSettings();
     let code;do{code=randomCode(8)}while(rooms.has(code));
-    const room={code,pin:randomCode(16),ownerName:principal.name,created:Date.now(),expiresAt:Date.now()+SESSION_LEASE_MS,teacher:null,ownerSid:principal.sid,ownerId:principal.id,students:new Map(),inflight:new Map(),audit:{entries:[],visits:[]}};
+    const room={code,transfer,pin:randomCode(16),ownerName:principal.name,created:Date.now(),expiresAt:Date.now()+SESSION_LEASE_MS,teacher:null,ownerSid:principal.sid,ownerId:principal.id,students:new Map(),inflight:new Map(),audit:{entries:[],visits:[]}};
     const teacher=makeSession('teacher',room);teacher.ownerSid=principal.sid;teacher.expiresAt=room.expiresAt;room.teacher=teacher;rooms.set(code,room);
     if(principal.role==='teacher')await userStore.incrementRoomCount(principal.id);
     // Preserve the browser cookie across long teaching sessions, while the live room
     // remains authorized server-side. An absent/expired session still cannot enter.
     res.setHeader('set-cookie',loginCookie(principal.sid,req,ACTIVE_ROOM_COOKIE_SECONDS));
-    return sendJson(res,200,{code,pin:room.pin,token:teacher.token,expiresAt:new Date(room.expiresAt).toISOString(),durationMinutes:50});
+    return sendJson(res,200,{code,pin:room.pin,token:teacher.token,transfer:room.transfer,expiresAt:new Date(room.expiresAt).toISOString(),durationMinutes:50});
   }
   if (pathname === '/api/join') {
     const ip=String(req.socket.remoteAddress || 'unknown');
@@ -397,7 +404,7 @@ async function api(req,res,pathname) {
     room.students.set(student.id,student);
     roomAudit(room,'ENTRY',name,[], '',student.id);
     enqueue(room.teacher,{type:'student_count',count:room.students.size});
-    return sendJson(res,200,{token:student.token,studentId:student.id,name:student.name,expiresAt:new Date(room.expiresAt).toISOString(),roomExpiresAt:new Date(room.expiresAt).toISOString(),durationMinutes:50});
+    return sendJson(res,200,{token:student.token,studentId:student.id,name:student.name,transfer:room.transfer,expiresAt:new Date(room.expiresAt).toISOString(),roomExpiresAt:new Date(room.expiresAt).toISOString(),durationMinutes:50});
   }
   const sess=sessions.get(body.token);
   if (!sess) return error(res,401,'Sessao expirada. Reabra o site.');
@@ -471,10 +478,10 @@ async function api(req,res,pathname) {
     if(msg.type==='request'){
       if(!['list','download','upload'].includes(msg.op) || !safePath(msg.path||[]))return error(res,400,'Solicitacao invalida.');
       if(msg.op==='download' && !safeName(msg.name)) return error(res,400,'Nome invalido.');
-      if(msg.op==='upload' && (!safeName(msg.name) || !Number.isSafeInteger(msg.size) || msg.size<0 || msg.size>MAX_FILE))return error(res,400,'Arquivo invalido ou acima de 40 MB.');
+      if(msg.op==='upload' && (!safeName(msg.name) || !Number.isSafeInteger(msg.size) || msg.size<0 || msg.size>room.transfer.maxFileMiB*1024*1024))return error(res,400,'Arquivo invalido ou acima de '+room.transfer.maxFileMiB+' MiB.');
       if(room.inflight.has(key))return error(res,409,'Solicitacao repetida.');
       if([...room.inflight.keys()].filter(k=>k.startsWith(sess.id+':')).length>=3)return error(res,429,'Aguarde a transferencia anterior.');
-      room.inflight.set(key,{student:sess,op:msg.op,started:Date.now(),pathParts:[...(msg.path||[])],downloadBlock:msg.op==='download'&&msg.downloadBlock===DOWNLOAD_BLOCK_BYTES?DOWNLOAD_BLOCK_BYTES:48*1024,downloadCredit:0});
+      room.inflight.set(key,{student:sess,op:msg.op,started:Date.now(),pathParts:[...(msg.path||[])],downloadBlock:msg.op==='download'&&msg.downloadBlock===room.transfer.downloadBlockKiB*1024?room.transfer.downloadBlockKiB*1024:48*1024,downloadCredit:0,received:0,declaredSize:null});
       enqueue(room.teacher,{...msg,downloadBlock:room.inflight.get(key).downloadBlock,from:sess.id,studentName:sess.name});
       return sendJson(res,200,{ok:true});
     }
@@ -485,7 +492,7 @@ async function api(req,res,pathname) {
       enqueue(room.teacher,{type:'chunk',id:msg.id,from:sess.id,data:msg.data});return sendJson(res,200,{ok:true});
     }
     if(msg.type==='finish' && state.op==='upload') {enqueue(room.teacher,{type:'finish',id:msg.id,from:sess.id});return sendJson(res,200,{ok:true});}
-    if(msg.type==='pull' && state.op==='download'){if(state.downloadCredit!==0)return error(res,409,'Aguarde o bloco anterior.');state.downloadCredit=1;enqueue(room.teacher,{type:'pull',id:msg.id,from:sess.id});return sendJson(res,200,{ok:true});}
+    if(msg.type==='pull' && state.op==='download'){if(state.downloadCredit!==0||sess.queue.some(e=>e.type==='chunk'&&e.id===msg.id))return error(res,409,'Aguarde o bloco anterior.');state.downloadCredit=1;enqueue(room.teacher,{type:'pull',id:msg.id,from:sess.id});return sendJson(res,200,{ok:true});}
     return error(res,400,'Operacao invalida.');
   }
   // Professor: pode responder somente para solicitacoes de alunos autenticados.
@@ -496,9 +503,20 @@ async function api(req,res,pathname) {
   if(!state)return error(res,410,'Solicitacao inexistente ou encerrada.');
   if(!['answer','chunk','ack'].includes(msg.type))return error(res,400,'Resposta invalida.');
   if(msg.type==='chunk' && (state.op!=='download' || typeof msg.data!=='string' || msg.data.length>4*Math.ceil(state.downloadBlock/3) || state.downloadCredit!==1 || !/^[A-Za-z0-9+/]*={0,2}$/.test(msg.data)))return error(res,400,'Chunk invalido.');
-  if(msg.type==='chunk')state.downloadCredit=0;
+  if(msg.type==='chunk'){
+    const n=Buffer.from(msg.data,'base64').length;
+    if(n<1||n>state.downloadBlock||state.declaredSize===null||state.received+n>state.declaredSize)return error(res,400,'Tamanho do bloco de download invalido.');
+    state.received+=n;state.downloadCredit=0;
+  }
   if(msg.type==='ack' && state.op!=='upload')return error(res,400,'Confirmacao invalida.');
   if(msg.type==='answer' && !['ready','done','error'].includes(msg.phase))return error(res,400,'Resposta invalida.');
+  if(msg.type==='answer'&&state.op==='download'){
+    if(msg.phase==='ready'){
+      if(state.declaredSize!==null||!Number.isSafeInteger(msg.size)||msg.size<0||msg.size>room.transfer.maxFileMiB*1024*1024)return error(res,400,'Tamanho do download invalido ou acima do limite da sala.');
+      state.declaredSize=msg.size;
+    }
+    if(msg.phase==='done'&&(state.declaredSize===null||state.received!==state.declaredSize))return error(res,400,'Download incompleto.');
+  }
   const allowed={type:msg.type,id:msg.id};
   for (const key of ['phase','name','size','savedName','message','data','entries']) if (Object.hasOwn(msg,key)) allowed[key]=msg[key];
   // Registra apenas o upload concluido pelo navegador do professor.

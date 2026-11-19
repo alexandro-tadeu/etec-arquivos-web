@@ -183,11 +183,26 @@ function saveUsersCsv(){
  const a=document.createElement('a');a.href=url;a.download='etec_usuarios_salas_'+new Date().toISOString().slice(0,10)+'.csv';
  document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),10000);
 }
+let transferLoaded=false,transferBusy=false;
+function applyTransfer(t){$('transferMaxFile').value=String(t.maxFileMiB);$('transferBlock').value=String(t.downloadBlockKiB);}
+async function loadTransfer(){
+ if(transferBusy)return;
+ transferBusy=true;transferLoaded=false;$('transferFields').disabled=true;$('transferStatus').textContent='Carregando configurações…';
+ try{const data=await post('admin/transfer/get');applyTransfer(data.settings);transferLoaded=true;$('transferStatus').textContent='Configurações vigentes para novas salas.';}
+ catch(e){$('transferStatus').textContent=e.message;flash(e.message,true);}finally{transferBusy=false;$('transferFields').disabled=!transferLoaded;}
+}
+$('transferForm').addEventListener('submit',async e=>{
+ e.preventDefault();if(!transferLoaded||transferBusy)return;
+ transferBusy=true;$('transferFields').disabled=true;
+ try{const data=await post('admin/transfer/save',{maxFileMiB:Number($('transferMaxFile').value),downloadBlockKiB:Number($('transferBlock').value)});applyTransfer(data.settings);$('transferStatus').textContent='Salvo. As novas salas usarão estes parâmetros.';flash('Configurações de transferência salvas.');}
+ catch(e){$('transferStatus').textContent=e.message;flash(e.message,true);}finally{transferBusy=false;$('transferFields').disabled=false;}
+});
+$('defaultTransfer').addEventListener('click',()=>{if(!transferLoaded||transferBusy)return;applyTransfer({maxFileMiB:40,downloadBlockKiB:768});$('transferStatus').textContent='Valores padrão preenchidos. Clique em Salvar para aplicar.';});
 function setAdminTab(tab){
- if(!['cadastro','professores','usuarios'].includes(tab))return;
+ if(!['cadastro','professores','usuarios','transfer'].includes(tab))return;
  selectedTab=tab;
- for(const name of ['cadastro','professores','usuarios']){
-  const suffix={cadastro:'Cadastro',professores:'Professores',usuarios:'Usuarios'}[name];
+ for(const name of ['cadastro','professores','usuarios','transfer']){
+  const suffix={cadastro:'Cadastro',professores:'Professores',usuarios:'Usuarios',transfer:'Transfer'}[name];
   const selected=tab===name;
   $('panel'+suffix).classList.toggle('hidden',!selected);
   $('tab'+suffix).classList.toggle('selected',selected);
@@ -197,11 +212,13 @@ function setAdminTab(tab){
  // Consulta apenas a guia solicitada, sem repetir requisicoes SQL entre guias.
  if(tab==='cadastro')refresh().catch(e=>flash(e.message,true));
  else if(tab==='professores')loadDashboard().catch(e=>flash(e.message,true));
- else loadUsers().catch(e=>flash(e.message,true));
+ else if(tab==='usuarios')loadUsers().catch(e=>flash(e.message,true));
+ else loadTransfer();
 }
 $('tabCadastro').addEventListener('click',()=>setAdminTab('cadastro'));
 $('tabProfessores').addEventListener('click',()=>setAdminTab('professores'));
 $('tabUsuarios').addEventListener('click',()=>setAdminTab('usuarios'));
+$('tabTransfer').addEventListener('click',()=>setAdminTab('transfer'));
 $('refreshDashboard').addEventListener('click',()=>loadDashboard().catch(e=>flash(e.message,true)));
 $('refreshUsers').addEventListener('click',()=>loadUsers().catch(e=>flash(e.message,true)));
 $('exportUsers').addEventListener('click',async()=>{try{await loadUsers();saveUsersCsv();}catch(e){flash(e.message,true);}});
@@ -211,11 +228,11 @@ setInterval(()=>{
  if(document.visibilityState==='hidden')return;
  if(selectedTab==='usuarios')loadUsers().catch(e=>flash(e.message,true));
  else if(selectedTab==='professores')loadDashboard().catch(e=>flash(e.message,true));
- else refresh().catch(e=>flash(e.message,true));
+ else if(selectedTab==='cadastro')refresh().catch(e=>flash(e.message,true));
 },20000);
 document.addEventListener('visibilitychange',()=>{
  if(document.visibilityState!=='visible')return;
  if(selectedTab==='usuarios')loadUsers().catch(e=>flash(e.message,true));
  else if(selectedTab==='professores')loadDashboard().catch(e=>flash(e.message,true));
- else refresh().catch(e=>flash(e.message,true));
+ else if(selectedTab==='cadastro')refresh().catch(e=>flash(e.message,true));
 });

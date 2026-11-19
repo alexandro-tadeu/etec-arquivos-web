@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const {DEFAULT_TRANSFER,validateTransfer}=require('./transfer-settings');
 
 function publicTeacher(t) { return {id:t.id,username:t.username,name:t.name,school:t.school,active:t.active,createdAt:t.created_at,version:t.version,roomsCreated:Number(t.rooms_created||0)}; }
 function createUserStore() {
@@ -18,11 +19,19 @@ function createUserStore() {
         salt text NOT NULL, password_hash text NOT NULL, active boolean NOT NULL DEFAULT true,
         version integer NOT NULL DEFAULT 1, created_at timestamptz NOT NULL DEFAULT now())`)
         .then(()=>pool.query('ALTER TABLE etec_teachers ADD COLUMN IF NOT EXISTS rooms_created bigint NOT NULL DEFAULT 0'))
+        .then(()=>pool.query(`CREATE TABLE IF NOT EXISTS etec_transfer_settings (
+          id integer PRIMARY KEY CHECK (id=1),
+          max_file_mib integer NOT NULL CHECK (max_file_mib BETWEEN 1 AND 100),
+          download_block_kib integer NOT NULL CHECK (download_block_kib IN (48,128,256,512,768,1024)),
+          updated_at timestamptz NOT NULL DEFAULT now()
+        )`))
         .catch(err=>{initialized=null;throw err;});
       await initialized;
     }
     return {
       mode:'postgres', ready,
+      async getTransferSettings(){await ready();const r=await pool.query('SELECT max_file_mib, download_block_kib FROM etec_transfer_settings WHERE id=1');return r.rows[0]?validateTransfer({maxFileMiB:r.rows[0].max_file_mib,downloadBlockKiB:r.rows[0].download_block_kib}):{...DEFAULT_TRANSFER};},
+      async setTransferSettings(value){const t=validateTransfer(value);await ready();await pool.query('INSERT INTO etec_transfer_settings(id,max_file_mib,download_block_kib) VALUES (1,$1,$2) ON CONFLICT (id) DO UPDATE SET max_file_mib=excluded.max_file_mib,download_block_kib=excluded.download_block_kib,updated_at=now()',[t.maxFileMiB,t.downloadBlockKiB]);return t;},
       async list() {await ready(); const r=await pool.query('SELECT * FROM etec_teachers ORDER BY name ASC');return r.rows.map(publicTeacher);},
       async incrementRoomCount(id){await ready();const r=await pool.query('UPDATE etec_teachers SET rooms_created=rooms_created+1 WHERE id=$1 RETURNING rooms_created',[id]);if(r.rowCount!==1)throw Object.assign(new Error('Professor nao encontrado.'),{status:404});return Number(r.rows[0].rooms_created);},
       async byUsername(username) {await ready();const r=await pool.query('SELECT * FROM etec_teachers WHERE username=$1',[username]);return r.rows[0]||null;},
@@ -37,7 +46,7 @@ function createUserStore() {
   // Sem DATABASE_URL no Render: NAO cadastrar professores com armazenamento efemero.
   if (process.env.NODE_ENV === 'production') {
     const unavailable=async()=>{throw Object.assign(new Error('Configure DATABASE_URL com um PostgreSQL persistente para cadastrar professores. Consulte o GUIA-DE-ATUALIZACAO.md.'),{status:503});};
-    return {mode:'unconfigured',ready:async()=>{},list:unavailable,byId:unavailable,byUsername:unavailable,create:unavailable,setPassword:unavailable,setActive:unavailable,incrementRoomCount:unavailable,update:unavailable,remove:unavailable};
+    return {mode:'unconfigured',ready:async()=>{},list:unavailable,byId:unavailable,byUsername:unavailable,create:unavailable,setPassword:unavailable,setActive:unavailable,incrementRoomCount:unavailable,update:unavailable,remove:unavailable,getTransferSettings:unavailable,setTransferSettings:unavailable};
   }
   // Desenvolvimento e testes: arquivo fora do Git, gravado com rename atomico.
   const filename=process.env.TEACHERS_FILE || path.join(__dirname,'users.local.json');
@@ -45,6 +54,8 @@ function createUserStore() {
   async function save(users){fs.mkdirSync(path.dirname(filename),{recursive:true});const tmp=filename+'.'+process.pid+'.tmp';fs.writeFileSync(tmp,JSON.stringify(users,null,2),{mode:0o600});fs.renameSync(tmp,filename);}
   return {
     mode:'local-development',ready:async()=>{},
+    async getTransferSettings(){try{return validateTransfer(JSON.parse(fs.readFileSync(filename+'.transfer.json','utf8')));}catch(e){if(e.code==='ENOENT')return {...DEFAULT_TRANSFER};throw e;}},
+    async setTransferSettings(value){const t=validateTransfer(value);fs.mkdirSync(path.dirname(filename),{recursive:true});const tmp=filename+'.transfer.'+process.pid+'.tmp';fs.writeFileSync(tmp,JSON.stringify(t),{mode:0o600});fs.renameSync(tmp,filename+'.transfer.json');return t;},
     async incrementRoomCount(id){const all=await read(),t=all.find(x=>x.id===id);if(!t)throw Object.assign(new Error('Professor nao encontrado.'),{status:404});t.rooms_created=Number(t.rooms_created||0)+1;await save(all);return t.rooms_created;},
     async list(){return (await read()).map(publicTeacher);},
     async byId(id){return (await read()).find(t=>t.id===id)||null;},

@@ -1,7 +1,15 @@
 'use strict';
 // Toda a operacao no computador do professor usa a File System Access API.
 // Nenhuma pasta e enviada integralmente ao servidor intermediario.
-const MAX_FILE = 40 * 1024 * 1024;
+const DEFAULT_TRANSFER={maxFileMiB:40,downloadBlockKiB:768};
+let transfer={...DEFAULT_TRANSFER};
+const maxFileBytes=()=>transfer.maxFileMiB*1024*1024;
+function setTransferSettings(value){
+  transfer=value&&Number.isInteger(value.maxFileMiB)&&value.maxFileMiB>=1&&value.maxFileMiB<=100&&[48,128,256,512,768,1024].includes(value.downloadBlockKiB)?{...value}:{...DEFAULT_TRANSFER};
+  for(const id of ['studentTransferLimit','teacherTransferLimit']){
+    const node=document.getElementById(id);if(node)node.textContent='Limite por arquivo: '+transfer.maxFileMiB+' MiB. Bloco de download: '+transfer.downloadBlockKiB+' KiB.';
+  }
+}
 // Ao fechar ou navegar para outra pagina, tenta registrar a saída imediatamente.
 // Se o navegador não conseguir comunicar, o servidor marcará timeout após inatividade.
 window.addEventListener('pagehide',()=>{
@@ -16,7 +24,7 @@ window.addEventListener('pagehide',()=>{
   }catch{}
 });
 const CHUNK_BYTES = 48 * 1024; // uploads unchanged
-const DOWNLOAD_BLOCK_BYTES=768*1024;
+const downloadBlockBytes=()=>transfer.downloadBlockKiB*1024;
 const $ = id => document.getElementById(id);
 const state = {role:null,token:null,alive:false,room:null,pin:null,dir:null,path:[],jobs:new Map(),activeUploads:new Map(),reserved:new Set(),studentCount:0};
 let latestRoomReport = null;
@@ -131,6 +139,7 @@ $('selectFolder')?.addEventListener('click',async()=>{
   try{
     const room=await api('create',{});
     state.role='teacher';state.token=room.token;state.room=room.code;state.pin=room.pin;state.dir=handle;state.alive=true;
+    setTransferSettings(room.transfer);
     setLeaseExpiration(room.expiresAt);
     hide('startPanel');show('teacherPanel');
     $('roomCode').textContent=room.code;$('roomPin').textContent=room.pin;
@@ -310,13 +319,13 @@ async function teacherEvent(evt){
       if(evt.op==='download'){
         const fileHandle=await dir.getFileHandle(evt.name,{create:false});
         const file=await fileHandle.getFile();
-        if(file.size>MAX_FILE)throw new Error('Arquivo acima do limite de 40 MB do prototipo.');
-        teacherJobs.set(key,{kind:'download',file,offset:0,to:evt.from,id:evt.id,block:evt.downloadBlock===DOWNLOAD_BLOCK_BYTES?DOWNLOAD_BLOCK_BYTES:CHUNK_BYTES});
+        if(file.size>maxFileBytes())throw new Error('Arquivo acima do limite de '+transfer.maxFileMiB+' MiB da sala.');
+        teacherJobs.set(key,{kind:'download',file,offset:0,to:evt.from,id:evt.id,block:evt.downloadBlock===downloadBlockBytes()?downloadBlockBytes():CHUNK_BYTES});
         await reply(evt.from,evt.id,'ready',{name:evt.name,size:file.size});return;
       }
       if(evt.op==='upload'){
         if(forbiddenUpload.test(evt.name))throw new Error('Por seguranca, este tipo de arquivo nao pode ser enviado.');
-        if(!Number.isSafeInteger(evt.size)||evt.size>MAX_FILE||evt.size<0)throw new Error('Arquivo acima do limite permitido.');
+        if(!Number.isSafeInteger(evt.size)||evt.size>maxFileBytes()||evt.size<0)throw new Error('Arquivo acima do limite permitido.');
         // Identificacao recebida do servidor; nunca confiar em um nome escrito no evento pelo aluno.
         if(typeof evt.studentName!=='string'||evt.studentName.trim().split(/\s+/).length<2)throw new Error('Identificacao do aluno ausente.');
         const timestamp=new Date();
@@ -377,6 +386,7 @@ $('joinForm')?.addEventListener('submit',async(ev)=>{
   try{
     const result=await api('join',{code,pin,name});
     state.role='student';state.token=result.token;state.room=code;state.alive=true;state.path=[];
+    setTransferSettings(result.transfer);
     setLeaseExpiration(result.expiresAt);
     hide('startPanel');show('studentPanel');$('studentRoom').textContent=result.name+' — Sala '+code;
     poll();await listFolder();
@@ -391,7 +401,7 @@ function beginRequest(op,extra={}){
   const id=makeId();let resolve,reject;
   const result=new Promise((a,b)=>{resolve=a;reject=b;});
   const job={op,id,resolve,reject,...extra};state.jobs.set(id,job);
-  send({type:'request',id,op,path:[...state.path],...(extra.name?{name:extra.name}:{}),...(extra.file?{size:extra.file.size}:{}),...(op==='download'?{downloadBlock:DOWNLOAD_BLOCK_BYTES}:{})})
+  send({type:'request',id,op,path:[...state.path],...(extra.name?{name:extra.name}:{}),...(extra.file?{size:extra.file.size}:{}),...(op==='download'?{downloadBlock:downloadBlockBytes()}:{})})
     .catch(err=>{state.jobs.delete(id);reject(err)});
   return result;
 }
@@ -435,7 +445,7 @@ $('refreshList')?.addEventListener('click',listFolder);
 $('uploadButton')?.addEventListener('click',async()=>{
   clearFlash();const file=$('uploadFile').files?.[0];
   if(!file)return flash('Selecione um arquivo para enviar.',true);
-  if(file.size>MAX_FILE)return flash('Este prototipo aceita arquivos ate 40 MB.',true);
+  if(file.size>maxFileBytes())return flash('Esta sala aceita arquivos de até '+transfer.maxFileMiB+' MiB.',true);
   if(!allowedName(file.name)||forbiddenUpload.test(file.name))return flash('Nome ou tipo de arquivo nao permitido.',true);
   $('uploadButton').disabled=true;setProgress('Preparando envio: '+file.name,0);
   try{
@@ -474,7 +484,7 @@ async function studentEvent(evt){
     if(evt.phase==='error'){state.jobs.delete(evt.id);job.reject(new Error(evt.message||'Falha no computador do professor.'));return;}
     if(evt.phase==='ready'){
       if(job.op==='upload'){job.savedName=evt.savedName;sendNextChunk(job).catch(err=>{state.jobs.delete(job.id);job.reject(err);send({type:'cancel',id:job.id}).catch(()=>{})});}
-      if(job.op==='download'){if(!Number.isSafeInteger(evt.size)||evt.size<0||evt.size>MAX_FILE){state.jobs.delete(job.id);job.reject(new Error('Tamanho de download inválido.'));send({type:'cancel',id:job.id}).catch(()=>{});return;}job.size=evt.size;send({type:'pull',id:job.id}).catch(err=>{state.jobs.delete(job.id);job.reject(err);send({type:'cancel',id:job.id}).catch(()=>{});});}
+      if(job.op==='download'){if(!Number.isSafeInteger(evt.size)||evt.size<0||evt.size>maxFileBytes()){state.jobs.delete(job.id);job.reject(new Error('Tamanho de download inválido.'));send({type:'cancel',id:job.id}).catch(()=>{});return;}job.size=evt.size;send({type:'pull',id:job.id}).catch(err=>{state.jobs.delete(job.id);job.reject(err);send({type:'cancel',id:job.id}).catch(()=>{});});}
       return;
     }
     if(evt.phase==='done'){
@@ -491,7 +501,7 @@ async function studentEvent(evt){
   }
   if(evt.type==='chunk'&&job.op==='download'){
     const bytes=fromBase64(evt.data);job.received+=bytes.byteLength;
-    if(job.received>MAX_FILE||job.received>job.size){state.jobs.delete(job.id);job.reject(new Error('Arquivo maior que o tamanho esperado.'));await send({type:'cancel',id:job.id}).catch(()=>{});return;}
+    if(job.received>maxFileBytes()||job.received>job.size){state.jobs.delete(job.id);job.reject(new Error('Arquivo maior que o tamanho esperado.'));await send({type:'cancel',id:job.id}).catch(()=>{});return;}
     job.parts.push(bytes);setProgress('Baixando '+job.name,job.size?100*job.received/job.size:100);
     try{await send({type:'pull',id:job.id});}catch(err){state.jobs.delete(job.id);job.reject(err);send({type:'cancel',id:job.id}).catch(()=>{});}
   }

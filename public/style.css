@@ -38,7 +38,7 @@
 #panelUsuarios .teachertable td{overflow-wrap:anywhere}
 
 /* Gestao com tres guias: formulario, docentes online e acompanhamento de alunos. */
-.admin-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));}
+.admin-tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));}
 .admin-tabs .tab{min-width:0;padding:15px 12px;line-height:1.4;}
 .admin-tabs .tab:focus-visible{outline:3px solid #186cc7;outline-offset:-4px;}
 @media(max-width:600px){.admin-tabs{grid-template-columns:1fr}.admin-tabs .tab{padding:12px}}
@@ -68,3 +68,5 @@
 .teacher-directory .teacher-icon-enable{--teacher-icon:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22m8%205%2012%207-12%207Z%22%2F%3E%3C%2Fsvg%3E")}
 .teacher-directory .teacher-icon-reset{--teacher-icon:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Ccircle%20cx%3D%228%22%20cy%3D%229%22%20r%3D%225%22%2F%3E%3Cpath%20d%3D%22m12%2013%208%208m-4-4%203-3m0%206%203-3%22%2F%3E%3C%2Fsvg%3E")}
 .teacher-directory .teacher-icon-delete{--teacher-icon:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22m6%206%2012%2012M18%206%206%2018%22%2F%3E%3C%2Fsvg%3E")}
+
+#transferForm select{display:block;width:100%;min-height:44px;border:1px solid #bed0e0;border-radius:8px;padding:8px 12px;background:#fff;color:#17324d;font:inherit}#transferForm label small{display:block;margin-top:6px;font-weight:400}#transferForm .management-actions{gap:10px;flex-wrap:wrap}
