@@ -107,6 +107,27 @@ test('site, sala, protecao, lista, download e upload em eventos intermediados',a
   await receive(teacherToken,e=>e.type==='pull'&&e.id==='down1');
   await post('send',{token:teacherToken,message:{type:'answer',id:'down1',to:ev.from,phase:'done'}});
   assert.equal((await receive(studentToken,e=>e.type==='answer'&&e.phase==='done'&&e.id==='down1')).phase,'done');
+  // Negotiate large blocks, preserving binary content including compressed-file bytes.
+  const bytes=require('node:crypto').randomBytes(768*1024+157);
+  assert.equal((await post('send',{token:studentToken,message:{type:'request',id:'fast1',op:'download',path:[],name:'material.zip',downloadBlock:768*1024}})).code,200);
+  const fast=await receive(teacherToken,e=>e.id==='fast1'&&e.type==='request');
+  assert.equal(fast.downloadBlock,768*1024);
+  await post('send',{token:teacherToken,message:{type:'answer',id:'fast1',to:fast.from,phase:'ready',size:bytes.length}});
+  await receive(studentToken,e=>e.id==='fast1'&&e.phase==='ready');
+  const parts=[];
+  for(let offset=0;offset<bytes.length;offset+=768*1024){
+    assert.equal((await post('send',{token:studentToken,message:{type:'pull',id:'fast1'}})).code,200);
+    assert.equal((await post('send',{token:studentToken,message:{type:'pull',id:'fast1'}})).code,409);
+    await receive(teacherToken,e=>e.id==='fast1'&&e.type==='pull');
+    assert.equal((await post('send',{token:teacherToken,message:{type:'chunk',id:'fast1',to:fast.from,data:bytes.subarray(offset,offset+768*1024).toString('base64')}})).code,200);
+    const part=await receive(studentToken,e=>e.id==='fast1'&&e.type==='chunk');
+    parts.push(Buffer.from(part.data,'base64'));
+  }
+  assert.deepEqual(Buffer.concat(parts),bytes);
+  await post('send',{token:studentToken,message:{type:'pull',id:'fast1'}});
+  await receive(teacherToken,e=>e.id==='fast1'&&e.type==='pull');
+  await post('send',{token:teacherToken,message:{type:'answer',id:'fast1',to:fast.from,phase:'done'}});
+  await receive(studentToken,e=>e.id==='fast1'&&e.phase==='done');
   await post('send',{token:studentToken,message:{type:'request',id:'up1',op:'upload',path:['Trabalhos'],name:'entrega.txt',size:2}});
   const uploadRequest=await receive(teacherToken,e=>e.id==='up1');assert.equal(uploadRequest.size,2);
   await post('send',{token:teacherToken,message:{type:'answer',id:'up1',to:ev.from,phase:'ready',savedName:'entrega.txt'}});
