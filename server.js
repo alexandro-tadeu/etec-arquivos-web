@@ -36,6 +36,9 @@ if (V3_API_ENABLED) {
 const PORT = Number(process.env.PORT || 3000);
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const MAX_BODY = 180 * 1024;
+const DOWNLOAD_BLOCK_BYTES=768*1024;
+const DOWNLOAD_BASE64_MAX=4*Math.ceil(DOWNLOAD_BLOCK_BYTES/3);
+const MAX_SEND_BODY=DOWNLOAD_BASE64_MAX+8192;
 const MAX_FILE = 40 * 1024 * 1024;
 const MAX_ROOMS = 30;
 const MAX_STUDENTS = 45;
@@ -210,13 +213,13 @@ function cleanExpired() {
   for (const [key, state] of loginFailures) if (now-state.since > LOGIN_LOCK_MS) loginFailures.delete(key);
 }
 setInterval(cleanExpired,CLEAN_INTERVAL_MS).unref();
-async function parseBody(req) {
+async function parseBody(req,maxBytes=MAX_BODY) {
   const contentType = String(req.headers['content-type'] || '');
   if (!contentType.startsWith('application/json')) throw Object.assign(new Error('Requisicao JSON necessaria.'), {status:415});
   let content = ''; let size = 0;
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > MAX_BODY) throw Object.assign(new Error('Mensagem muito grande.'), {status:413});
+    if (size > maxBytes) throw Object.assign(new Error('Mensagem muito grande.'), {status:413});
     content += chunk;
   }
   try { const data=JSON.parse(content); if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error(); return data; }
@@ -255,7 +258,7 @@ function summarizeTeachers(teachers){
   });
 }
 async function api(req,res,pathname) {
-  const body = await parseBody(req);
+  const body = await parseBody(req,pathname==='/api/send'?MAX_SEND_BODY:MAX_BODY);
   if (pathname === '/api/admin/login') {
     if (ADMIN_PASSWORD.length<12)return error(res,503,'Configure ADMIN_PASSWORD (12 ou mais caracteres) no Render.');
     const username=String(body.username||'').trim().toLowerCase();
@@ -460,7 +463,7 @@ async function api(req,res,pathname) {
   if (pathname !== '/api/send') return error(res,404,'Operacao desconhecida.');
   const msg=body.message;
   if (!msg || typeof msg !== 'object' || Array.isArray(msg) || typeof msg.type !== 'string') return error(res,400,'Mensagem invalida.');
-  if (JSON.stringify(msg).length > MAX_BODY-4096) return error(res,413,'Mensagem muito grande.');
+  if (JSON.stringify(msg).length > (sess.role==='teacher'&&msg.type==='chunk'?MAX_SEND_BODY:MAX_BODY)-4096) return error(res,413,'Mensagem muito grande.');
   if (sess.role==='student') {
     if (!isAlive(room)) return error(res,410,'Professor desconectado.');
     if (!/^[\w-]{1,32}$/.test(String(msg.id || ''))) return error(res,400,'Identificador invalido.');
@@ -471,8 +474,8 @@ async function api(req,res,pathname) {
       if(msg.op==='upload' && (!safeName(msg.name) || !Number.isSafeInteger(msg.size) || msg.size<0 || msg.size>MAX_FILE))return error(res,400,'Arquivo invalido ou acima de 40 MB.');
       if(room.inflight.has(key))return error(res,409,'Solicitacao repetida.');
       if([...room.inflight.keys()].filter(k=>k.startsWith(sess.id+':')).length>=3)return error(res,429,'Aguarde a transferencia anterior.');
-      room.inflight.set(key,{student:sess,op:msg.op,started:Date.now(),pathParts:[...(msg.path||[])]});
-      enqueue(room.teacher,{...msg,from:sess.id,studentName:sess.name});
+      room.inflight.set(key,{student:sess,op:msg.op,started:Date.now(),pathParts:[...(msg.path||[])],downloadBlock:msg.op==='download'&&msg.downloadBlock===DOWNLOAD_BLOCK_BYTES?DOWNLOAD_BLOCK_BYTES:48*1024,downloadCredit:0});
+      enqueue(room.teacher,{...msg,downloadBlock:room.inflight.get(key).downloadBlock,from:sess.id,studentName:sess.name});
       return sendJson(res,200,{ok:true});
     }
     const state=room.inflight.get(key);
@@ -482,7 +485,7 @@ async function api(req,res,pathname) {
       enqueue(room.teacher,{type:'chunk',id:msg.id,from:sess.id,data:msg.data});return sendJson(res,200,{ok:true});
     }
     if(msg.type==='finish' && state.op==='upload') {enqueue(room.teacher,{type:'finish',id:msg.id,from:sess.id});return sendJson(res,200,{ok:true});}
-    if(msg.type==='pull' && state.op==='download'){enqueue(room.teacher,{type:'pull',id:msg.id,from:sess.id});return sendJson(res,200,{ok:true});}
+    if(msg.type==='pull' && state.op==='download'){if(state.downloadCredit!==0)return error(res,409,'Aguarde o bloco anterior.');state.downloadCredit=1;enqueue(room.teacher,{type:'pull',id:msg.id,from:sess.id});return sendJson(res,200,{ok:true});}
     return error(res,400,'Operacao invalida.');
   }
   // Professor: pode responder somente para solicitacoes de alunos autenticados.
@@ -492,7 +495,8 @@ async function api(req,res,pathname) {
   const state=room.inflight.get(key);
   if(!state)return error(res,410,'Solicitacao inexistente ou encerrada.');
   if(!['answer','chunk','ack'].includes(msg.type))return error(res,400,'Resposta invalida.');
-  if(msg.type==='chunk' && (state.op!=='download' || typeof msg.data!=='string' || msg.data.length>100000 || !/^[A-Za-z0-9+/]*={0,2}$/.test(msg.data)))return error(res,400,'Chunk invalido.');
+  if(msg.type==='chunk' && (state.op!=='download' || typeof msg.data!=='string' || msg.data.length>4*Math.ceil(state.downloadBlock/3) || state.downloadCredit!==1 || !/^[A-Za-z0-9+/]*={0,2}$/.test(msg.data)))return error(res,400,'Chunk invalido.');
+  if(msg.type==='chunk')state.downloadCredit=0;
   if(msg.type==='ack' && state.op!=='upload')return error(res,400,'Confirmacao invalida.');
   if(msg.type==='answer' && !['ready','done','error'].includes(msg.phase))return error(res,400,'Resposta invalida.');
   const allowed={type:msg.type,id:msg.id};

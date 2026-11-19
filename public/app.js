@@ -15,7 +15,8 @@ window.addEventListener('pagehide',()=>{
     }
   }catch{}
 });
-const CHUNK_BYTES = 48 * 1024;
+const CHUNK_BYTES = 48 * 1024; // uploads unchanged
+const DOWNLOAD_BLOCK_BYTES=768*1024;
 const $ = id => document.getElementById(id);
 const state = {role:null,token:null,alive:false,room:null,pin:null,dir:null,path:[],jobs:new Map(),activeUploads:new Map(),reserved:new Set(),studentCount:0};
 let latestRoomReport = null;
@@ -310,7 +311,7 @@ async function teacherEvent(evt){
         const fileHandle=await dir.getFileHandle(evt.name,{create:false});
         const file=await fileHandle.getFile();
         if(file.size>MAX_FILE)throw new Error('Arquivo acima do limite de 40 MB do prototipo.');
-        teacherJobs.set(key,{kind:'download',file,offset:0,to:evt.from,id:evt.id});
+        teacherJobs.set(key,{kind:'download',file,offset:0,to:evt.from,id:evt.id,block:evt.downloadBlock===DOWNLOAD_BLOCK_BYTES?DOWNLOAD_BLOCK_BYTES:CHUNK_BYTES});
         await reply(evt.from,evt.id,'ready',{name:evt.name,size:file.size});return;
       }
       if(evt.op==='upload'){
@@ -357,7 +358,7 @@ async function teacherEvent(evt){
     }
     if(evt.type==='pull'&&job.kind==='download'){
       if(job.offset>=job.file.size){teacherJobs.delete(key);await reply(evt.from,evt.id,'done');return;}
-      const buf=await job.file.slice(job.offset,job.offset+CHUNK_BYTES).arrayBuffer();
+      const buf=await job.file.slice(job.offset,job.offset+job.block).arrayBuffer();
       job.offset+=buf.byteLength;
       await send({type:'chunk',to:evt.from,id:evt.id,data:toBase64(new Uint8Array(buf))});return;
     }
@@ -390,7 +391,7 @@ function beginRequest(op,extra={}){
   const id=makeId();let resolve,reject;
   const result=new Promise((a,b)=>{resolve=a;reject=b;});
   const job={op,id,resolve,reject,...extra};state.jobs.set(id,job);
-  send({type:'request',id,op,path:[...state.path],...(extra.name?{name:extra.name}:{}),...(extra.file?{size:extra.file.size}:{})})
+  send({type:'request',id,op,path:[...state.path],...(extra.name?{name:extra.name}:{}),...(extra.file?{size:extra.file.size}:{}),...(op==='download'?{downloadBlock:DOWNLOAD_BLOCK_BYTES}:{})})
     .catch(err=>{state.jobs.delete(id);reject(err)});
   return result;
 }
@@ -473,14 +474,14 @@ async function studentEvent(evt){
     if(evt.phase==='error'){state.jobs.delete(evt.id);job.reject(new Error(evt.message||'Falha no computador do professor.'));return;}
     if(evt.phase==='ready'){
       if(job.op==='upload'){job.savedName=evt.savedName;sendNextChunk(job).catch(err=>{state.jobs.delete(job.id);job.reject(err);send({type:'cancel',id:job.id}).catch(()=>{})});}
-      if(job.op==='download'){job.size=evt.size;send({type:'pull',id:job.id}).catch(err=>{state.jobs.delete(job.id);job.reject(err)});}
+      if(job.op==='download'){if(!Number.isSafeInteger(evt.size)||evt.size<0||evt.size>MAX_FILE){state.jobs.delete(job.id);job.reject(new Error('Tamanho de download inválido.'));send({type:'cancel',id:job.id}).catch(()=>{});return;}job.size=evt.size;send({type:'pull',id:job.id}).catch(err=>{state.jobs.delete(job.id);job.reject(err);send({type:'cancel',id:job.id}).catch(()=>{});});}
       return;
     }
     if(evt.phase==='done'){
       state.jobs.delete(evt.id);
       if(job.op==='list')job.resolve({entries:evt.entries});
       else if(job.op==='upload')job.resolve({savedName:evt.savedName||job.savedName});
-      else if(job.op==='download')job.resolve({parts:job.parts});
+      else if(job.op==='download'){if(job.received!==job.size)job.reject(new Error('Download incompleto. Tente novamente.'));else job.resolve({parts:job.parts});}
       return;
     }
   }
@@ -492,7 +493,7 @@ async function studentEvent(evt){
     const bytes=fromBase64(evt.data);job.received+=bytes.byteLength;
     if(job.received>MAX_FILE||job.received>job.size){state.jobs.delete(job.id);job.reject(new Error('Arquivo maior que o tamanho esperado.'));await send({type:'cancel',id:job.id}).catch(()=>{});return;}
     job.parts.push(bytes);setProgress('Baixando '+job.name,job.size?100*job.received/job.size:100);
-    await send({type:'pull',id:job.id});
+    try{await send({type:'pull',id:job.id});}catch(err){state.jobs.delete(job.id);job.reject(err);send({type:'cancel',id:job.id}).catch(()=>{});}
   }
 }
 (function boot(){
