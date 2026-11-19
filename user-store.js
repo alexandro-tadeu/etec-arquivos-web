@@ -21,10 +21,11 @@ function createUserStore() {
         .then(()=>pool.query('ALTER TABLE etec_teachers ADD COLUMN IF NOT EXISTS rooms_created bigint NOT NULL DEFAULT 0'))
         .then(()=>pool.query(`CREATE TABLE IF NOT EXISTS etec_transfer_settings (
           id integer PRIMARY KEY CHECK (id=1),
-          max_file_mib integer NOT NULL CHECK (max_file_mib BETWEEN 1 AND 100),
+          max_file_mib integer NOT NULL CHECK (max_file_mib >= 1),
           download_block_kib integer NOT NULL CHECK (download_block_kib IN (48,128,256,512,768,1024)),
           updated_at timestamptz NOT NULL DEFAULT now()
         )`))
+        .then(()=>pool.query("DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='etec_transfer_settings'::regclass AND conname='etec_transfer_settings_max_file_mib_check' AND pg_get_constraintdef(oid) LIKE '%100%') THEN ALTER TABLE etec_transfer_settings DROP CONSTRAINT etec_transfer_settings_max_file_mib_check; ALTER TABLE etec_transfer_settings ADD CONSTRAINT etec_transfer_settings_max_file_mib_check CHECK (max_file_mib >= 1); END IF; END; $$;"))
         .catch(err=>{initialized=null;throw err;});
       await initialized;
     }

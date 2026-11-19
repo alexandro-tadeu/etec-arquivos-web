@@ -5,7 +5,7 @@ const DEFAULT_TRANSFER={maxFileMiB:40,downloadBlockKiB:768};
 let transfer={...DEFAULT_TRANSFER};
 const maxFileBytes=()=>transfer.maxFileMiB*1024*1024;
 function setTransferSettings(value){
-  transfer=value&&Number.isInteger(value.maxFileMiB)&&value.maxFileMiB>=1&&value.maxFileMiB<=100&&[48,128,256,512,768,1024].includes(value.downloadBlockKiB)?{...value}:{...DEFAULT_TRANSFER};
+  transfer=value&&Number.isInteger(value.maxFileMiB)&&value.maxFileMiB>=1&&value.maxFileMiB<=2147483647&&[48,128,256,512,768,1024].includes(value.downloadBlockKiB)?{...value}:{...DEFAULT_TRANSFER};
   for(const id of ['studentTransferLimit','teacherTransferLimit']){
     const node=document.getElementById(id);if(node)node.textContent='Limite por arquivo: '+transfer.maxFileMiB+' MiB. Bloco de download: '+transfer.downloadBlockKiB+' KiB.';
   }
