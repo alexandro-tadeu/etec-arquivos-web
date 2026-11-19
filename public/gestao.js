@@ -87,7 +87,7 @@ $('cancelReset').addEventListener('click',()=>{$('resetDialog').close();resetTea
 $('resetForm').addEventListener('submit',async e=>{
   e.preventDefault();
   const password=$('newPassword').value;
-  if(password.length<12){flash('A senha precisa ter pelo menos 12 caracteres.',true);return;}
+  if(password.length<8){flash('A senha precisa ter pelo menos 8 caracteres.',true);return;}
   if(!confirm('Confirmar alteração? A sessão e a sala do professor serão encerradas.'))return;
   try{
     await post('admin/teachers/reset',{id:resetTeacherId,password});

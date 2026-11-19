@@ -309,7 +309,7 @@ async function api(req,res,pathname) {
       const school=String(body.school||'').trim();
       const password=String(body.password||'');
       if(!usernameRule.test(username)||username===ADMIN_USER)return error(res,400,'Usuario invalido (3-40 caracteres, letras minusculas, numeros, ponto, _ ou -).');
-      if(name.length<3||name.length>80||school.length>100||password.length<12||password.length>128)return error(res,400,'Informe nome, unidade e senha de 12 a 128 caracteres.');
+      if(name.length<3||name.length>80||school.length>100||password.length<8||password.length>128)return error(res,400,'Informe nome, unidade e senha de 8 a 128 caracteres.');
       if(await userStore.byUsername(username))return error(res,409,'Usuario ja cadastrado.');
       const hashed=await hashPassword(password);
       try{const saved=await userStore.create({id:crypto.randomUUID(),username,name,school,...hashed});return sendJson(res,201,{teacher:saved});}
@@ -354,7 +354,7 @@ async function api(req,res,pathname) {
         updated=await userStore.setActive(id,body.active);
       }else{
         const password=String(body.password||'');
-        if(password.length<12||password.length>128)return error(res,400,'Senha deve ter de 12 a 128 caracteres.');
+        if(password.length<8||password.length>128)return error(res,400,'Senha deve ter de 8 a 128 caracteres.');
         const hashed=await hashPassword(password);
         updated=await userStore.setPassword(id,hashed.salt,hashed.password_hash);
       }
