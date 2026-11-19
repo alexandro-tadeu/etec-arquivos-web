@@ -29,12 +29,25 @@ function renderTeachers(){
     for(const field of [t.name,t.username,t.school]){const td=document.createElement('td');td.textContent=field||'—';tr.append(td);}
     const status=document.createElement('td');status.textContent=t.active?'Ativo':'Inativo';status.className=t.active?'status-on':'status-off';tr.append(status);
     const actions=document.createElement('td');actions.className='teacher-row-actions';
-    const toggle=document.createElement('button');toggle.className='minor';toggle.type='button';toggle.textContent=t.active?'Desativar':'Reativar';
-    toggle.addEventListener('click',()=>changeStatus(t));
-    const reset=document.createElement('button');reset.className='minor';reset.type='button';reset.textContent='Redefinir senha';reset.addEventListener('click',()=>resetPassword(t));
-    const action=(label,handler)=>{const b=document.createElement('button');b.className='minor';b.type='button';b.textContent=label;b.addEventListener('click',handler);return b;};
-    const remove=action('Excluir',()=>deleteTeacher(t));remove.className='minor teacher-delete';
-    const group=document.createElement('div');group.className='teacher-action-group';group.append(action('Editar',()=>editTeacher(t)),toggle,reset,remove);actions.append(group);tr.append(actions);tbody.append(tr);
+    // Botões de ícone; title fornece a dica nativa no hover e aria-label identifica a ação.
+    const action=(label,kind,handler)=>{
+      const b=document.createElement('button');
+      b.className='teacher-icon-action teacher-icon-'+kind;
+      b.type='button';
+      b.title=label;
+      b.setAttribute('aria-label',label);
+      b.addEventListener('click',handler);
+      return b;
+    };
+    const group=document.createElement('div');
+    group.className='teacher-action-group';
+    group.append(
+      action('Editar','edit',()=>editTeacher(t)),
+      action(t.active?'Desativar':'Reativar',t.active?'disable':'enable',()=>changeStatus(t)),
+      action('Redefinir senha','reset',()=>resetPassword(t)),
+      action('Excluir','delete',()=>deleteTeacher(t))
+    );
+    actions.append(group);tr.append(actions);tbody.append(tr);
   }
 }
 async function consultTeacher(t){
