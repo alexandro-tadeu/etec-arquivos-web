@@ -184,20 +184,23 @@ function saveUsersCsv(){
  document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),10000);
 }
 let transferLoaded=false,transferBusy=false;
-function applyTransfer(t){$('transferMaxFile').value=String(t.maxFileMiB);$('transferBlock').value=String(t.downloadBlockKiB);}
+function toggleTransferMode(){$('transferBlock').disabled=$('transferMode').value!=='manual';}
+$('transferMode').addEventListener('change',toggleTransferMode);
+function applyTransfer(t){$('transferMaxFile').value=String(t.maxFileMiB);$('transferBlock').value=String(t.downloadBlockKiB);$('transferMode').value=t.mode||'auto';toggleTransferMode();}
+function showTransferLoad(load){if(!load)return;$('transferLoad').textContent='Carga atual: '+load.connected+' alunos conectados | '+load.active+' transferências | Bloco automático estimado: '+load.automaticBlockKiB+' KiB.';}
 async function loadTransfer(){
  if(transferBusy)return;
  transferBusy=true;transferLoaded=false;$('transferFields').disabled=true;$('transferStatus').textContent='Carregando configurações…';
- try{const data=await post('admin/transfer/get');applyTransfer(data.settings);transferLoaded=true;$('transferStatus').textContent='Configurações vigentes para novas salas.';}
+ try{const data=await post('admin/transfer/get');applyTransfer(data.settings);showTransferLoad(data.load);transferLoaded=true;$('transferStatus').textContent='Configurações vigentes para novas salas.';}
  catch(e){$('transferStatus').textContent=e.message;flash(e.message,true);}finally{transferBusy=false;$('transferFields').disabled=!transferLoaded;}
 }
 $('transferForm').addEventListener('submit',async e=>{
  e.preventDefault();if(!transferLoaded||transferBusy)return;
  transferBusy=true;$('transferFields').disabled=true;
- try{const data=await post('admin/transfer/save',{maxFileMiB:Number($('transferMaxFile').value),downloadBlockKiB:Number($('transferBlock').value)});applyTransfer(data.settings);$('transferStatus').textContent='Salvo. As novas salas usarão estes parâmetros.';flash('Configurações de transferência salvas.');}
+ try{const data=await post('admin/transfer/save',{maxFileMiB:Number($('transferMaxFile').value),downloadBlockKiB:Number($('transferBlock').value),mode:$('transferMode').value});applyTransfer(data.settings);showTransferLoad(data.load);$('transferStatus').textContent='Salvo. As novas salas usarão estes parâmetros.';flash('Configurações de transferência salvas.');}
  catch(e){$('transferStatus').textContent=e.message;flash(e.message,true);}finally{transferBusy=false;$('transferFields').disabled=false;}
 });
-$('defaultTransfer').addEventListener('click',()=>{if(!transferLoaded||transferBusy)return;applyTransfer({maxFileMiB:40,downloadBlockKiB:768});$('transferStatus').textContent='Valores padrão preenchidos. Clique em Salvar para aplicar.';});
+$('defaultTransfer').addEventListener('click',()=>{if(!transferLoaded||transferBusy)return;applyTransfer({maxFileMiB:40,downloadBlockKiB:768,mode:'auto'});$('transferStatus').textContent='Valores padrão preenchidos. Clique em Salvar para aplicar.';});
 function setAdminTab(tab){
  if(!['cadastro','professores','usuarios','transfer'].includes(tab))return;
  selectedTab=tab;

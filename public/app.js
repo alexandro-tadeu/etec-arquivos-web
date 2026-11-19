@@ -1,13 +1,13 @@
 'use strict';
 // Toda a operacao no computador do professor usa a File System Access API.
 // Nenhuma pasta e enviada integralmente ao servidor intermediario.
-const DEFAULT_TRANSFER={maxFileMiB:40,downloadBlockKiB:768};
+const DEFAULT_TRANSFER={maxFileMiB:40,downloadBlockKiB:768,mode:'auto'};
 let transfer={...DEFAULT_TRANSFER};
 const maxFileBytes=()=>transfer.maxFileMiB*1024*1024;
 function setTransferSettings(value){
-  transfer=value&&Number.isInteger(value.maxFileMiB)&&value.maxFileMiB>=1&&value.maxFileMiB<=2147483647&&[48,128,256,512,768,1024].includes(value.downloadBlockKiB)?{...value}:{...DEFAULT_TRANSFER};
+  transfer=value&&Number.isInteger(value.maxFileMiB)&&value.maxFileMiB>=1&&value.maxFileMiB<=2147483647&&[48,128,256,512,768,1024].includes(value.downloadBlockKiB)?{...value,mode:value.mode||'manual'}:{...DEFAULT_TRANSFER};
   for(const id of ['studentTransferLimit','teacherTransferLimit']){
-    const node=document.getElementById(id);if(node)node.textContent='Limite por arquivo: '+transfer.maxFileMiB+' MiB. Bloco de download: '+transfer.downloadBlockKiB+' KiB.';
+    const node=document.getElementById(id);if(node)node.textContent='Limite por arquivo: '+transfer.maxFileMiB+' MiB. '+(transfer.mode==='auto'?'Download automático (blocos adaptativos).':'Bloco de download: '+transfer.downloadBlockKiB+' KiB.');
   }
 }
 // Ao fechar ou navegar para outra pagina, tenta registrar a saída imediatamente.
@@ -25,6 +25,7 @@ window.addEventListener('pagehide',()=>{
 });
 const CHUNK_BYTES = 48 * 1024; // uploads unchanged
 const downloadBlockBytes=()=>transfer.downloadBlockKiB*1024;
+const validDownloadBlock=n=>[48,128,256,512,768,1024].includes(n/1024);
 const $ = id => document.getElementById(id);
 const state = {role:null,token:null,alive:false,room:null,pin:null,dir:null,path:[],jobs:new Map(),activeUploads:new Map(),reserved:new Set(),studentCount:0};
 let latestRoomReport = null;
@@ -137,7 +138,7 @@ $('selectFolder')?.addEventListener('click',async()=>{
   catch(e){if(e.name==='AbortError')return;flash('Nao foi possivel autorizar a pasta: '+e.message,true);return;}
   $('selectFolder').disabled=true;
   try{
-    const room=await api('create',{});
+    const room=await api('create',{adaptiveDownload:true});
     state.role='teacher';state.token=room.token;state.room=room.code;state.pin=room.pin;state.dir=handle;state.alive=true;
     setTransferSettings(room.transfer);
     setLeaseExpiration(room.expiresAt);
@@ -320,7 +321,7 @@ async function teacherEvent(evt){
         const fileHandle=await dir.getFileHandle(evt.name,{create:false});
         const file=await fileHandle.getFile();
         if(file.size>maxFileBytes())throw new Error('Arquivo acima do limite de '+transfer.maxFileMiB+' MiB da sala.');
-        teacherJobs.set(key,{kind:'download',file,offset:0,to:evt.from,id:evt.id,block:evt.downloadBlock===downloadBlockBytes()?downloadBlockBytes():CHUNK_BYTES});
+        teacherJobs.set(key,{kind:'download',file,offset:0,to:evt.from,id:evt.id,block:validDownloadBlock(evt.downloadBlock)?evt.downloadBlock:CHUNK_BYTES});
         await reply(evt.from,evt.id,'ready',{name:evt.name,size:file.size});return;
       }
       if(evt.op==='upload'){
@@ -367,7 +368,8 @@ async function teacherEvent(evt){
     }
     if(evt.type==='pull'&&job.kind==='download'){
       if(job.offset>=job.file.size){teacherJobs.delete(key);await reply(evt.from,evt.id,'done');return;}
-      const buf=await job.file.slice(job.offset,job.offset+job.block).arrayBuffer();
+      const block=validDownloadBlock(evt.downloadBlock)?evt.downloadBlock:job.block;
+      const buf=await job.file.slice(job.offset,job.offset+block).arrayBuffer();
       job.offset+=buf.byteLength;
       await send({type:'chunk',to:evt.from,id:evt.id,data:toBase64(new Uint8Array(buf))});return;
     }
@@ -401,7 +403,7 @@ function beginRequest(op,extra={}){
   const id=makeId();let resolve,reject;
   const result=new Promise((a,b)=>{resolve=a;reject=b;});
   const job={op,id,resolve,reject,...extra};state.jobs.set(id,job);
-  send({type:'request',id,op,path:[...state.path],...(extra.name?{name:extra.name}:{}),...(extra.file?{size:extra.file.size}:{}),...(op==='download'?{downloadBlock:downloadBlockBytes()}:{})})
+  send({type:'request',id,op,path:[...state.path],...(extra.name?{name:extra.name}:{}),...(extra.file?{size:extra.file.size}:{}),...(op==='download'?{downloadBlock:downloadBlockBytes(),adaptiveDownload:true}:{})})
     .catch(err=>{state.jobs.delete(id);reject(err)});
   return result;
 }

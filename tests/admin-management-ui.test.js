@@ -64,6 +64,8 @@ test('user tab and refresh hooks are installed even when old switch-to-teacher c
  for(let i=0;i<10;i++)await new Promise(resolve=>setImmediate(resolve));
  assert.equal(el('transferMaxFile').value,'40');
  assert.equal(el('transferBlock').value,'768');
+ assert.equal(el('transferMode').value,'auto');
+ assert.equal(el('transferBlock').disabled,true);
  el('tabCadastro').handlers.get('click')();
  assert.equal(el('panelCadastro').classList.contains('hidden'),false);
  assert.equal(el('panelUsuarios').classList.contains('hidden'),true);

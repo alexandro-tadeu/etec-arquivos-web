@@ -26,13 +26,14 @@ function createUserStore() {
           updated_at timestamptz NOT NULL DEFAULT now()
         )`))
         .then(()=>pool.query("DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='etec_transfer_settings'::regclass AND conname='etec_transfer_settings_max_file_mib_check' AND pg_get_constraintdef(oid) LIKE '%100%') THEN ALTER TABLE etec_transfer_settings DROP CONSTRAINT etec_transfer_settings_max_file_mib_check; ALTER TABLE etec_transfer_settings ADD CONSTRAINT etec_transfer_settings_max_file_mib_check CHECK (max_file_mib >= 1); END IF; END; $$;"))
+        .then(()=>pool.query("ALTER TABLE etec_transfer_settings ADD COLUMN IF NOT EXISTS transfer_mode text NOT NULL DEFAULT 'auto' CHECK (transfer_mode IN ('auto','manual'))"))
         .catch(err=>{initialized=null;throw err;});
       await initialized;
     }
     return {
       mode:'postgres', ready,
-      async getTransferSettings(){await ready();const r=await pool.query('SELECT max_file_mib, download_block_kib FROM etec_transfer_settings WHERE id=1');return r.rows[0]?validateTransfer({maxFileMiB:r.rows[0].max_file_mib,downloadBlockKiB:r.rows[0].download_block_kib}):{...DEFAULT_TRANSFER};},
-      async setTransferSettings(value){const t=validateTransfer(value);await ready();await pool.query('INSERT INTO etec_transfer_settings(id,max_file_mib,download_block_kib) VALUES (1,$1,$2) ON CONFLICT (id) DO UPDATE SET max_file_mib=excluded.max_file_mib,download_block_kib=excluded.download_block_kib,updated_at=now()',[t.maxFileMiB,t.downloadBlockKiB]);return t;},
+      async getTransferSettings(){await ready();const r=await pool.query('SELECT max_file_mib, download_block_kib, transfer_mode FROM etec_transfer_settings WHERE id=1');return r.rows[0]?validateTransfer({maxFileMiB:r.rows[0].max_file_mib,downloadBlockKiB:r.rows[0].download_block_kib,mode:r.rows[0].transfer_mode}):{...DEFAULT_TRANSFER};},
+      async setTransferSettings(value){const t=validateTransfer(value);await ready();await pool.query('INSERT INTO etec_transfer_settings(id,max_file_mib,download_block_kib,transfer_mode) VALUES (1,$1,$2,$3) ON CONFLICT (id) DO UPDATE SET max_file_mib=excluded.max_file_mib,download_block_kib=excluded.download_block_kib,transfer_mode=excluded.transfer_mode,updated_at=now()',[t.maxFileMiB,t.downloadBlockKiB,t.mode]);return t;},
       async list() {await ready(); const r=await pool.query('SELECT * FROM etec_teachers ORDER BY name ASC');return r.rows.map(publicTeacher);},
       async incrementRoomCount(id){await ready();const r=await pool.query('UPDATE etec_teachers SET rooms_created=rooms_created+1 WHERE id=$1 RETURNING rooms_created',[id]);if(r.rowCount!==1)throw Object.assign(new Error('Professor nao encontrado.'),{status:404});return Number(r.rows[0].rooms_created);},
       async byUsername(username) {await ready();const r=await pool.query('SELECT * FROM etec_teachers WHERE username=$1',[username]);return r.rows[0]||null;},
