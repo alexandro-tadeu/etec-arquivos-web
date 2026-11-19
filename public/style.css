@@ -42,3 +42,19 @@
 .admin-tabs .tab{min-width:0;padding:15px 12px;line-height:1.4;}
 .admin-tabs .tab:focus-visible{outline:3px solid #186cc7;outline-offset:-4px;}
 @media(max-width:600px){.admin-tabs{grid-template-columns:1fr}.admin-tabs .tab{padding:12px}}
+
+/* Cadastro: preservar espaço para identificação e manter ações compactas. */
+.teacher-directory{table-layout:fixed;min-width:800px;font-size:14px}
+.teacher-directory .teacher-name-col{width:26%}
+.teacher-directory .teacher-user-col{width:17%}
+.teacher-directory .teacher-school-col{width:13%}
+.teacher-directory .teacher-status-col{width:9%}
+.teacher-directory .teacher-actions-col{width:35%}
+.teacher-directory th,.teacher-directory td{padding:12px 8px;vertical-align:middle;overflow-wrap:anywhere}
+.teacher-directory tbody td:first-child{font-weight:600;color:#17324d;line-height:1.45}
+.teacher-directory tbody tr:hover{background:#f8fbfe}
+.teacher-action-group{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+.teacher-directory .teacher-action-group button{width:100%;margin:0;min-height:34px;padding:6px 4px;font-size:12px;line-height:1.3;white-space:normal;border-radius:6px}
+.teacher-directory .teacher-delete{color:#b42318;border-color:#efc5c0;background:#fff}
+.teacher-directory .teacher-delete:hover{background:#fff1ef}
+@media(min-width:1200px){.teacher-directory .teacher-name-col{width:28%}.teacher-directory .teacher-user-col{width:17%}.teacher-directory .teacher-school-col{width:14%}.teacher-directory .teacher-status-col{width:9%}.teacher-directory .teacher-actions-col{width:32%}}
