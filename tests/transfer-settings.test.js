@@ -5,8 +5,9 @@ const {DEFAULT_TRANSFER,validateTransfer}=require('../transfer-settings');
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 test('transfer settings validate server safety limits',()=>{
  assert.deepEqual(DEFAULT_TRANSFER,{maxFileMiB:40,downloadBlockKiB:768});
+ for(const maxFileMiB of [101,500,1024,2048,5120])assert.deepEqual(validateTransfer({maxFileMiB,downloadBlockKiB:1024}),{maxFileMiB,downloadBlockKiB:1024});
  assert.deepEqual(validateTransfer({maxFileMiB:100,downloadBlockKiB:1024}),{maxFileMiB:100,downloadBlockKiB:1024});
- for(const v of [{maxFileMiB:101,downloadBlockKiB:768},{maxFileMiB:40,downloadBlockKiB:999},{maxFileMiB:0,downloadBlockKiB:48},{maxFileMiB:'40',downloadBlockKiB:768}])assert.throws(()=>validateTransfer(v));
+ for(const v of [{maxFileMiB:2147483648,downloadBlockKiB:768},{maxFileMiB:40,downloadBlockKiB:999},{maxFileMiB:0,downloadBlockKiB:48},{maxFileMiB:'40',downloadBlockKiB:768}])assert.throws(()=>validateTransfer(v));
 });
 test('admin settings persist, old rooms retain original limits, new rooms receive new limits',async()=>{
  const port=await new Promise((ok,no)=>{const s=net.createServer();s.once('error',no);s.listen(0,'127.0.0.1',()=>{const p=s.address().port;s.close(()=>ok(p));});});
@@ -19,8 +20,8 @@ test('admin settings persist, old rooms retain original limits, new rooms receiv
   const login=await post('admin/login',{username:'admin',password});assert.equal(login.code,200);const cookie=login.cookie.split(';')[0];
   assert.deepEqual((await post('admin/transfer/get',{},cookie)).body.settings,DEFAULT_TRANSFER);
   const old=await post('create',{},cookie);assert.equal(old.code,200);
-  assert.equal((await post('admin/transfer/save',{maxFileMiB:101,downloadBlockKiB:1024},cookie)).code,400);
-  const saved={maxFileMiB:80,downloadBlockKiB:1024};
+  assert.equal((await post('admin/transfer/save',{maxFileMiB:0,downloadBlockKiB:1024},cookie)).code,400);
+  const saved={maxFileMiB:500,downloadBlockKiB:1024};
   assert.deepEqual((await post('admin/transfer/save',saved,cookie)).body.settings,saved);
   assert.deepEqual(JSON.parse(fs.readFileSync(file+'.transfer.json','utf8')),saved);
   const before=await post('join',{code:old.body.code,pin:old.body.pin,name:'Aluno Teste'});assert.deepEqual(before.body.transfer,DEFAULT_TRANSFER);
@@ -29,15 +30,15 @@ test('admin settings persist, old rooms retain original limits, new rooms receiv
   assert.equal((await post('admin/transfer/save',DEFAULT_TRANSFER)).code,403);
   const request=(token,size,id)=>post('send',{token,message:{type:'request',id,op:'upload',path:[],name:'material.zip',size}});
   assert.equal((await request(before.body.token,41*1024*1024,'old')).code,400);
-  assert.equal((await request(after.body.token,81*1024*1024,'too-large')).code,400);
-  assert.equal((await request(after.body.token,41*1024*1024,'new')).code,200);
+  assert.equal((await request(after.body.token,501*1024*1024,'too-large')).code,400);
+  assert.equal((await request(after.body.token,250*1024*1024,'new')).code,200);
   assert.equal((await post('send',{token:after.body.token,message:{type:'cancel',id:'new'}})).code,200);
   const id='fast-new',data=Buffer.alloc(1024*1024,37);
   assert.equal((await post('send',{token:after.body.token,message:{type:'request',id,op:'download',path:[],name:'arquivo.zip',downloadBlock:1048576}})).code,200);
   const poll=await post('poll',{token:newRoom.body.token},cookie);
   const d=poll.body.events.find(e=>e.id===id);assert.equal(d.downloadBlock,1048576);
   const teacher=(message)=>post('send',{token:newRoom.body.token,message:{id,to:d.from,...message}},cookie);
-  assert.equal((await teacher({type:'answer',phase:'ready',size:81*1024*1024})).code,400);
+  assert.equal((await teacher({type:'answer',phase:'ready',size:501*1024*1024})).code,400);
   assert.equal((await teacher({type:'answer',phase:'ready',size:data.length})).code,200);
   await post('poll',{token:after.body.token});
   assert.equal((await post('send',{token:after.body.token,message:{type:'pull',id}})).code,200);

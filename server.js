@@ -297,7 +297,7 @@ async function api(req,res,pathname) {
     const admin=await getPrincipal(req);
     if(!admin||admin.role!=='admin')return error(res,403,'Apenas o administrador pode alterar configuracoes de transferencia.');
     const settings=pathname.endsWith('/save')?await userStore.setTransferSettings(validateTransfer(body)):await userStore.getTransferSettings();
-    return sendJson(res,200,{settings,defaults:DEFAULT_TRANSFER,blockOptions:BLOCK_OPTIONS,maxFileMiB:100});
+    return sendJson(res,200,{settings,defaults:DEFAULT_TRANSFER,blockOptions:BLOCK_OPTIONS});
   }
   if(pathname.startsWith('/api/admin/teachers/')) {
     const admin=await getPrincipal(req);
