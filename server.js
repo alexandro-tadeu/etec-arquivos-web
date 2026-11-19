@@ -9,7 +9,7 @@ const {promisify} = require('node:util');
 const scrypt = promisify(crypto.scrypt);
 const {createUserStore} = require('./user-store');
 const userStore=createUserStore();
-const {DEFAULT_TRANSFER,BLOCK_OPTIONS,validateTransfer}=require('./transfer-settings');
+const {DEFAULT_TRANSFER,BLOCK_OPTIONS,validateTransfer,chooseAutoBlock}=require('./transfer-settings');
 
 // Rotas academicas v3 somente com habilitacao explicita, DATABASE_URL e chave HMAC.
 // A branch principal da versao 2 continua protegida ate a troca deliberada.
@@ -55,6 +55,20 @@ const SESSION_LEASE_MS = process.env.NODE_ENV==='test' && Number(process.env.ETE
   ? Number(process.env.ETEC_TEST_SESSION_MS) : 50 * 60 * 1000;
 const rooms = new Map();
 const sessions = new Map();
+function transferPressure(){
+ let connected=0,active=0;
+ for(const room of rooms.values()){
+  connected+=room.students.size;
+  for(const job of room.inflight.values())if(job.op==='download'||job.op==='upload')active++;
+ }
+ const rssMiB=process.memoryUsage.rss()/1048576;
+ return {connected,active,rssMiB};
+}
+function adaptiveBlock(){return chooseAutoBlock(transferPressure())*1024;}
+function transferOverview(){
+ const load=transferPressure();
+ return {connected:load.connected,active:load.active,automaticBlockKiB:chooseAutoBlock(load)};
+}
 const failures = new Map();
 // Administrador principal: senha por variavel do Render. Professores: PostgreSQL.
 const ADMIN_USER = (process.env.ADMIN_USER || 'admin').toLowerCase();
@@ -297,7 +311,7 @@ async function api(req,res,pathname) {
     const admin=await getPrincipal(req);
     if(!admin||admin.role!=='admin')return error(res,403,'Apenas o administrador pode alterar configuracoes de transferencia.');
     const settings=pathname.endsWith('/save')?await userStore.setTransferSettings(validateTransfer(body)):await userStore.getTransferSettings();
-    return sendJson(res,200,{settings,defaults:DEFAULT_TRANSFER,blockOptions:BLOCK_OPTIONS});
+    return sendJson(res,200,{settings,defaults:DEFAULT_TRANSFER,blockOptions:BLOCK_OPTIONS,load:transferOverview()});
   }
   if(pathname.startsWith('/api/admin/teachers/')) {
     const admin=await getPrincipal(req);
@@ -378,7 +392,7 @@ async function api(req,res,pathname) {
     if(rooms.size >= MAX_ROOMS)return error(res,503,'Limite de salas simultaneas atingido.');
     const transfer=await userStore.getTransferSettings();
     let code;do{code=randomCode(8)}while(rooms.has(code));
-    const room={code,transfer,pin:randomCode(16),ownerName:principal.name,created:Date.now(),expiresAt:Date.now()+SESSION_LEASE_MS,teacher:null,ownerSid:principal.sid,ownerId:principal.id,students:new Map(),inflight:new Map(),audit:{entries:[],visits:[]}};
+    const room={code,transfer,adaptiveCapable:body.adaptiveDownload===true,pin:randomCode(16),ownerName:principal.name,created:Date.now(),expiresAt:Date.now()+SESSION_LEASE_MS,teacher:null,ownerSid:principal.sid,ownerId:principal.id,students:new Map(),inflight:new Map(),audit:{entries:[],visits:[]}};
     const teacher=makeSession('teacher',room);teacher.ownerSid=principal.sid;teacher.expiresAt=room.expiresAt;room.teacher=teacher;rooms.set(code,room);
     if(principal.role==='teacher')await userStore.incrementRoomCount(principal.id);
     // Preserve the browser cookie across long teaching sessions, while the live room
@@ -481,7 +495,9 @@ async function api(req,res,pathname) {
       if(msg.op==='upload' && (!safeName(msg.name) || !Number.isSafeInteger(msg.size) || msg.size<0 || msg.size>room.transfer.maxFileMiB*1024*1024))return error(res,400,'Arquivo invalido ou acima de '+room.transfer.maxFileMiB+' MiB.');
       if(room.inflight.has(key))return error(res,409,'Solicitacao repetida.');
       if([...room.inflight.keys()].filter(k=>k.startsWith(sess.id+':')).length>=3)return error(res,429,'Aguarde a transferencia anterior.');
-      room.inflight.set(key,{student:sess,op:msg.op,started:Date.now(),pathParts:[...(msg.path||[])],downloadBlock:msg.op==='download'&&msg.downloadBlock===room.transfer.downloadBlockKiB*1024?room.transfer.downloadBlockKiB*1024:48*1024,downloadCredit:0,received:0,declaredSize:null});
+      const adaptive=msg.op==='download'&&room.transfer.mode==='auto'&&room.adaptiveCapable&&msg.adaptiveDownload===true;
+      const fixedBlock=msg.op==='download'&&msg.downloadBlock===room.transfer.downloadBlockKiB*1024?room.transfer.downloadBlockKiB*1024:48*1024;
+      room.inflight.set(key,{student:sess,op:msg.op,started:Date.now(),pathParts:[...(msg.path||[])],adaptive,downloadBlock:adaptive?adaptiveBlock():fixedBlock,downloadCredit:0,received:0,declaredSize:null});
       enqueue(room.teacher,{...msg,downloadBlock:room.inflight.get(key).downloadBlock,from:sess.id,studentName:sess.name});
       return sendJson(res,200,{ok:true});
     }
@@ -492,7 +508,7 @@ async function api(req,res,pathname) {
       enqueue(room.teacher,{type:'chunk',id:msg.id,from:sess.id,data:msg.data});return sendJson(res,200,{ok:true});
     }
     if(msg.type==='finish' && state.op==='upload') {enqueue(room.teacher,{type:'finish',id:msg.id,from:sess.id});return sendJson(res,200,{ok:true});}
-    if(msg.type==='pull' && state.op==='download'){if(state.downloadCredit!==0||sess.queue.some(e=>e.type==='chunk'&&e.id===msg.id))return error(res,409,'Aguarde o bloco anterior.');state.downloadCredit=1;enqueue(room.teacher,{type:'pull',id:msg.id,from:sess.id});return sendJson(res,200,{ok:true});}
+    if(msg.type==='pull' && state.op==='download'){if(state.downloadCredit!==0||sess.queue.some(e=>e.type==='chunk'&&e.id===msg.id))return error(res,409,'Aguarde o bloco anterior.');if(state.adaptive)state.downloadBlock=adaptiveBlock();state.downloadCredit=1;enqueue(room.teacher,{type:'pull',id:msg.id,from:sess.id,downloadBlock:state.downloadBlock});return sendJson(res,200,{ok:true});}
     return error(res,400,'Operacao invalida.');
   }
   // Professor: pode responder somente para solicitacoes de alunos autenticados.

@@ -1,12 +1,12 @@
 'use strict';
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path'),net=require('node:net');
 const {spawn}=require('node:child_process');
-const {DEFAULT_TRANSFER,validateTransfer}=require('../transfer-settings');
+const {DEFAULT_TRANSFER,validateTransfer,chooseAutoBlock}=require('../transfer-settings');
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 test('transfer settings validate server safety limits',()=>{
- assert.deepEqual(DEFAULT_TRANSFER,{maxFileMiB:40,downloadBlockKiB:768});
- for(const maxFileMiB of [101,500,1024,2048,5120])assert.deepEqual(validateTransfer({maxFileMiB,downloadBlockKiB:1024}),{maxFileMiB,downloadBlockKiB:1024});
- assert.deepEqual(validateTransfer({maxFileMiB:100,downloadBlockKiB:1024}),{maxFileMiB:100,downloadBlockKiB:1024});
+ assert.deepEqual(DEFAULT_TRANSFER,{maxFileMiB:40,downloadBlockKiB:768,mode:'auto'});
+ for(const maxFileMiB of [101,500,1024,2048,5120])assert.deepEqual(validateTransfer({maxFileMiB,downloadBlockKiB:1024}),{maxFileMiB,downloadBlockKiB:1024,mode:'auto'});
+ assert.deepEqual(validateTransfer({maxFileMiB:100,downloadBlockKiB:1024}),{maxFileMiB:100,downloadBlockKiB:1024,mode:'auto'});
  for(const v of [{maxFileMiB:2147483648,downloadBlockKiB:768},{maxFileMiB:40,downloadBlockKiB:999},{maxFileMiB:0,downloadBlockKiB:48},{maxFileMiB:'40',downloadBlockKiB:768}])assert.throws(()=>validateTransfer(v));
 });
 test('admin settings persist, old rooms retain original limits, new rooms receive new limits',async()=>{
@@ -21,7 +21,7 @@ test('admin settings persist, old rooms retain original limits, new rooms receiv
   assert.deepEqual((await post('admin/transfer/get',{},cookie)).body.settings,DEFAULT_TRANSFER);
   const old=await post('create',{},cookie);assert.equal(old.code,200);
   assert.equal((await post('admin/transfer/save',{maxFileMiB:0,downloadBlockKiB:1024},cookie)).code,400);
-  const saved={maxFileMiB:500,downloadBlockKiB:1024};
+  const saved={maxFileMiB:500,downloadBlockKiB:1024,mode:'manual'};
   assert.deepEqual((await post('admin/transfer/save',saved,cookie)).body.settings,saved);
   assert.deepEqual(JSON.parse(fs.readFileSync(file+'.transfer.json','utf8')),saved);
   const before=await post('join',{code:old.body.code,pin:old.body.pin,name:'Aluno Teste'});assert.deepEqual(before.body.transfer,DEFAULT_TRANSFER);
@@ -48,4 +48,14 @@ test('admin settings persist, old rooms retain original limits, new rooms receiv
   assert.deepEqual(Buffer.from(received.body.events.find(e=>e.type==='chunk').data,'base64'),data);
   assert.equal((await teacher({type:'answer',phase:'done'})).code,200);
  }finally{child.kill();fs.rmSync(tmp,{recursive:true,force:true});}
+});
+
+test('adaptive blocks react to global connected students, active requests and process memory',()=>{
+ assert.equal(chooseAutoBlock({connected:1,active:1,rssMiB:100}),1024);
+ assert.equal(chooseAutoBlock({connected:40,active:2,rssMiB:100}),768);
+ assert.equal(chooseAutoBlock({connected:40,active:40,rssMiB:100}),512);
+ assert.equal(chooseAutoBlock({connected:80,active:70,rssMiB:100}),256);
+ assert.equal(chooseAutoBlock({connected:40,active:40,rssMiB:350}),256);
+ assert.equal(chooseAutoBlock({connected:40,active:40,rssMiB:410}),48);
+ assert.throws(()=>validateTransfer({maxFileMiB:40,downloadBlockKiB:768,mode:'bad'}));
 });
