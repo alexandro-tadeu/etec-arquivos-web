@@ -201,5 +201,22 @@ test('cadastro persistente, permissao de professor, duas salas isoladas e desati
   const reset=await as('admin/teachers/reset',{id:mariaRow.id,password:'Nova-Senha-ETEC-2026'},rootCookie);assert.equal(reset.code,200);
   assert.equal((await as('admin/login',{username:'prof.maria',password:'Senha-Inicial!2026'},'')).code,401);
   assert.equal((await as('admin/login',{username:'prof.maria',password:'Nova-Senha-ETEC-2026'},'')).code,200);
-  await as('close',{token:salaJ.body.token},jose);
+
+  const joseRow=list.find(t=>t.username==='prof.jose');
+  const detail=await as('admin/teachers/detail',{id:mariaRow.id},rootCookie);
+  assert.equal(detail.code,200);assert.equal(detail.body.teacher.id,mariaRow.id);
+  assert.equal('password_hash' in detail.body.teacher,false);assert.equal('salt' in detail.body.teacher,false);
+  for(const route of ['detail','update','delete'])assert.equal((await as('admin/teachers/'+route,{id:joseRow.id,confirm:true},jose)).code,403);
+  const duplicate=await as('admin/teachers/update',{id:mariaRow.id,name:'Maria Silva',username:'prof.jose',school:'ETEC'},rootCookie);
+  assert.equal(duplicate.code,409);
+  const changed=await as('admin/teachers/update',{id:mariaRow.id,name:'Maria Nova',username:'prof.maria.nova',school:'Etec Ferraz'},rootCookie);
+  assert.equal(changed.code,200);assert.equal(changed.body.teacher.school,'Etec Ferraz');
+  assert.equal((await as('admin/login',{username:'prof.maria',password:'Nova-Senha-ETEC-2026'},'')).code,401);
+  assert.equal((await as('admin/login',{username:'prof.maria.nova',password:'Nova-Senha-ETEC-2026'},'')).code,200);
+  assert.equal((await as('admin/teachers/delete',{id:joseRow.id},rootCookie)).code,400);
+  assert.equal((await as('admin/teachers/delete',{id:joseRow.id,confirm:true},rootCookie)).code,200);
+  assert.equal((await as('poll',{token:salaJ.body.token},jose)).code,401);
+  assert.equal((await as('admin/teachers/detail',{id:joseRow.id},rootCookie)).code,404);
+  assert.equal((await as('admin/teachers/list',{},rootCookie)).body.teachers.length,1);
+
 });
