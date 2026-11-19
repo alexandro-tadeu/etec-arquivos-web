@@ -169,14 +169,15 @@ test('cadastro persistente, permissao de professor, duas salas isoladas e desati
   }
   assert.equal((await as('admin/teachers/list',{},'')).code,403);
   assert.equal((await as('admin/teachers/create',{name:'Nao autorizado',username:'nao',password:'Senha1!Senha1!'},'')).code,403);
+  assert.equal((await as('admin/teachers/create',{username:'prof.curto',name:'Teste Curto',school:'ETEC',password:'Abc123!'},rootCookie)).code,400);
   for (const [username,name] of [['prof.maria','Maria Silva'],['prof.jose','Jose Pereira']]) {
-    const created=await as('admin/teachers/create',{username,name,school:'Etec Poa',password:'Senha-Inicial!2026'},rootCookie);
+    const created=await as('admin/teachers/create',{username,name,school:'Etec Poa',password:'Aula2026'},rootCookie);
     assert.equal(created.code,201,JSON.stringify(created));
     assert.equal(created.body.teacher.username,username);
     assert.equal('password_hash' in created.body.teacher,false);
   }
   assert.equal((await as('admin/teachers/list',{},rootCookie)).body.teachers.length,2);
-  async function login(username){const obj=await as('admin/login',{username,password:'Senha-Inicial!2026'},'');assert.equal(obj.code,200);assert.equal(obj.body.next,'/professor');return obj.cookie.split(';')[0];}
+  async function login(username){const obj=await as('admin/login',{username,password:'Aula2026'},'');assert.equal(obj.code,200);assert.equal(obj.body.next,'/professor');return obj.cookie.split(';')[0];}
   const maria=await login('prof.maria'); const jose=await login('prof.jose');
   assert.equal((await fetch(base+'/gestao',{headers:{cookie:maria},redirect:'manual'})).headers.get('location'),'/professor');
   assert.equal((await as('admin/teachers/list',{},maria)).code,403);
@@ -196,11 +197,12 @@ test('cadastro persistente, permissao de professor, duas salas isoladas e desati
   assert.equal((await as('poll',{token:alunoM.body.token},'')).code,401);
   assert.equal((await as('join',{code:salaM.body.code,pin:salaM.body.pin},'')).code,401);
   assert.equal((await as('poll',{token:salaJ.body.token},jose)).code,200);
-  assert.equal((await as('admin/login',{username:'prof.maria',password:'Senha-Inicial!2026'},'')).code,401);
+  assert.equal((await as('admin/login',{username:'prof.maria',password:'Aula2026'},'')).code,401);
   assert.equal((await as('admin/teachers/status',{id:mariaRow.id,active:true},rootCookie)).code,200);
-  const reset=await as('admin/teachers/reset',{id:mariaRow.id,password:'Nova-Senha-ETEC-2026'},rootCookie);assert.equal(reset.code,200);
-  assert.equal((await as('admin/login',{username:'prof.maria',password:'Senha-Inicial!2026'},'')).code,401);
-  assert.equal((await as('admin/login',{username:'prof.maria',password:'Nova-Senha-ETEC-2026'},'')).code,200);
+  assert.equal((await as('admin/teachers/reset',{id:mariaRow.id,password:'Abc123!'},rootCookie)).code,400);
+  const reset=await as('admin/teachers/reset',{id:mariaRow.id,password:'Nova2026'},rootCookie);assert.equal(reset.code,200);
+  assert.equal((await as('admin/login',{username:'prof.maria',password:'Aula2026'},'')).code,401);
+  assert.equal((await as('admin/login',{username:'prof.maria',password:'Nova2026'},'')).code,200);
 
   const joseRow=list.find(t=>t.username==='prof.jose');
   const detail=await as('admin/teachers/detail',{id:mariaRow.id},rootCookie);
@@ -211,8 +213,8 @@ test('cadastro persistente, permissao de professor, duas salas isoladas e desati
   assert.equal(duplicate.code,409);
   const changed=await as('admin/teachers/update',{id:mariaRow.id,name:'Maria Nova',username:'prof.maria.nova',school:'Etec Ferraz'},rootCookie);
   assert.equal(changed.code,200);assert.equal(changed.body.teacher.school,'Etec Ferraz');
-  assert.equal((await as('admin/login',{username:'prof.maria',password:'Nova-Senha-ETEC-2026'},'')).code,401);
-  assert.equal((await as('admin/login',{username:'prof.maria.nova',password:'Nova-Senha-ETEC-2026'},'')).code,200);
+  assert.equal((await as('admin/login',{username:'prof.maria',password:'Nova2026'},'')).code,401);
+  assert.equal((await as('admin/login',{username:'prof.maria.nova',password:'Nova2026'},'')).code,200);
   assert.equal((await as('admin/teachers/delete',{id:joseRow.id},rootCookie)).code,400);
   assert.equal((await as('admin/teachers/delete',{id:joseRow.id,confirm:true},rootCookie)).code,200);
   assert.equal((await as('poll',{token:salaJ.body.token},jose)).code,401);
