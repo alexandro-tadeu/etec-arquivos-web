@@ -28,6 +28,8 @@ function createUserStore() {
       async byUsername(username) {await ready();const r=await pool.query('SELECT * FROM etec_teachers WHERE username=$1',[username]);return r.rows[0]||null;},
       async byId(id) {await ready();const r=await pool.query('SELECT * FROM etec_teachers WHERE id=$1',[id]);return r.rows[0]||null;},
       async create(t) {await ready();const r=await pool.query('INSERT INTO etec_teachers(id,username,name,school,salt,password_hash,active,version) VALUES ($1,$2,$3,$4,$5,$6,true,1) RETURNING *',[t.id,t.username,t.name,t.school,t.salt,t.password_hash]);return publicTeacher(r.rows[0]);},
+      async update(id,t){await ready();const r=await pool.query('UPDATE etec_teachers SET username=$2,name=$3,school=$4,version=version+1 WHERE id=$1 RETURNING *',[id,t.username,t.name,t.school]);return r.rows[0]?publicTeacher(r.rows[0]):null;},
+      async remove(id){await ready();const r=await pool.query('DELETE FROM etec_teachers WHERE id=$1 RETURNING id',[id]);return r.rowCount===1;},
       async setPassword(id,salt,hash) {await ready();const r=await pool.query('UPDATE etec_teachers SET salt=$2,password_hash=$3,version=version+1 WHERE id=$1 RETURNING *',[id,salt,hash]);return r.rows[0]?publicTeacher(r.rows[0]):null;},
       async setActive(id,active) {await ready();const r=await pool.query('UPDATE etec_teachers SET active=$2,version=version+1 WHERE id=$1 RETURNING *',[id,active]);return r.rows[0]?publicTeacher(r.rows[0]):null;},
     };
@@ -35,7 +37,7 @@ function createUserStore() {
   // Sem DATABASE_URL no Render: NAO cadastrar professores com armazenamento efemero.
   if (process.env.NODE_ENV === 'production') {
     const unavailable=async()=>{throw Object.assign(new Error('Configure DATABASE_URL com um PostgreSQL persistente para cadastrar professores. Consulte o GUIA-DE-ATUALIZACAO.md.'),{status:503});};
-    return {mode:'unconfigured',ready:async()=>{},list:unavailable,byId:unavailable,byUsername:unavailable,create:unavailable,setPassword:unavailable,setActive:unavailable,incrementRoomCount:unavailable};
+    return {mode:'unconfigured',ready:async()=>{},list:unavailable,byId:unavailable,byUsername:unavailable,create:unavailable,setPassword:unavailable,setActive:unavailable,incrementRoomCount:unavailable,update:unavailable,remove:unavailable};
   }
   // Desenvolvimento e testes: arquivo fora do Git, gravado com rename atomico.
   const filename=process.env.TEACHERS_FILE || path.join(__dirname,'users.local.json');
@@ -48,6 +50,8 @@ function createUserStore() {
     async byId(id){return (await read()).find(t=>t.id===id)||null;},
     async byUsername(username){return (await read()).find(t=>t.username===username)||null;},
     async create(t){const all=await read();if(all.some(x=>x.username===t.username))throw Object.assign(new Error('Usuario ja cadastrado.'),{status:409});const obj={...t,active:true,version:1,created_at:new Date().toISOString()};all.push(obj);await save(all);return publicTeacher(obj);},
+    async update(id,t){const all=await read(),record=all.find(x=>x.id===id);if(!record)return null;if(all.some(x=>x.id!==id&&x.username===t.username))throw Object.assign(new Error('Usuario ja cadastrado.'),{status:409});Object.assign(record,{username:t.username,name:t.name,school:t.school,version:record.version+1});await save(all);return publicTeacher(record);},
+    async remove(id){const all=await read(),next=all.filter(x=>x.id!==id);if(next.length===all.length)return false;await save(next);return true;},
     async setPassword(id,salt,hash){const all=await read(), t=all.find(x=>x.id===id);if(!t)return null;t.salt=salt;t.password_hash=hash;t.version++;await save(all);return publicTeacher(t);},
     async setActive(id,active){const all=await read(),t=all.find(x=>x.id===id);if(!t)return null;t.active=active;t.version++;await save(all);return publicTeacher(t);},
   };

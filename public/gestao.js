@@ -32,8 +32,43 @@ function renderTeachers(){
     const toggle=document.createElement('button');toggle.className='minor';toggle.type='button';toggle.textContent=t.active?'Desativar':'Reativar';
     toggle.addEventListener('click',()=>changeStatus(t));
     const reset=document.createElement('button');reset.className='minor';reset.type='button';reset.textContent='Redefinir senha';reset.addEventListener('click',()=>resetPassword(t));
-    actions.append(toggle,reset);tr.append(actions);tbody.append(tr);
+    const action=(label,handler)=>{const b=document.createElement('button');b.className='minor';b.type='button';b.textContent=label;b.addEventListener('click',handler);return b;};
+    const remove=action('Excluir',()=>deleteTeacher(t));remove.style.color='#b42318';
+    actions.append(action('Consultar',()=>consultTeacher(t)),action('Editar',()=>editTeacher(t)),toggle,reset,remove);tr.append(actions);tbody.append(tr);
   }
+}
+async function consultTeacher(t){
+ try{
+  const {teacher}=await post('admin/teachers/detail',{id:t.id});
+  const dl=$('teacherDetails');dl.replaceChildren();
+  for(const [label,value] of [['Nome completo',teacher.name],['Usuário',teacher.username],['Unidade ETEC',teacher.school],['Situação',teacher.active?'Ativo':'Inativo'],['Conexão',teacher.online?'Online':'Offline'],['Salas criadas',teacher.roomsCreated],['Cadastro',timeBR(teacher.createdAt)]]){
+    const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=label;dd.textContent=String(value??'—');dl.append(dt,dd);
+  }
+  $('teacherDetailDialog').showModal();
+ }catch(e){flash(e.message,true);}
+}
+let editingId=null;
+async function editTeacher(t){
+ try{
+  const {teacher}=await post('admin/teachers/detail',{id:t.id});
+  editingId=teacher.id;$('editName').value=teacher.name;$('editSchool').value=teacher.school||'';$('editUsername').value=teacher.username;$('editError').textContent='';
+  $('teacherEditDialog').showModal();
+ }catch(e){flash(e.message,true);}
+}
+$('cancelEdit').addEventListener('click',()=>{$('teacherEditDialog').close();editingId=null;});
+$('teacherEditForm').addEventListener('submit',async e=>{
+ e.preventDefault();if(!editingId)return;
+ if(!confirm('Salvar alterações? As sessões e salas abertas deste professor serão encerradas.'))return;
+ const button=$('saveEdit');button.disabled=true;
+ try{
+  await post('admin/teachers/update',{id:editingId,name:$('editName').value.trim(),school:$('editSchool').value.trim(),username:$('editUsername').value.trim().toLowerCase()});
+  $('teacherEditDialog').close();editingId=null;flash('Dados do professor atualizados.');await refresh();
+ }catch(e){$('editError').textContent=e.message;flash(e.message,true);}finally{button.disabled=false;}
+});
+async function deleteTeacher(t){
+ if(!confirm('Excluir definitivamente '+t.name+' ('+t.username+')? O cadastro e o acesso serão removidos, e as salas abertas encerradas. Esta ação não pode ser desfeita.'))return;
+ try{await post('admin/teachers/delete',{id:t.id,confirm:true});flash('Professor excluído.');await refresh();}
+ catch(e){flash(e.message,true);}
 }
 async function changeStatus(t){
   if(!confirm(`${t.active?'Desativar':'Reativar'} ${t.name}? As salas abertas serão encerradas.`))return;

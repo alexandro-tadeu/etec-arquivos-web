@@ -315,6 +315,35 @@ async function api(req,res,pathname) {
       try{const saved=await userStore.create({id:crypto.randomUUID(),username,name,school,...hashed});return sendJson(res,201,{teacher:saved});}
       catch(err){if(err.code==='23505')return error(res,409,'Usuario ja cadastrado.');throw err;}
     }
+    if(pathname==='/api/admin/teachers/detail'){
+      const id=String(body.id||'');
+      const t=(await userStore.list()).find(x=>x.id===id);
+      if(!t)return error(res,404,'Professor nao encontrado.');
+      return sendJson(res,200,{teacher:summarizeTeachers([t])[0]});
+    }
+    if(pathname==='/api/admin/teachers/update'){
+      const id=String(body.id||'');
+      const username=String(body.username||'').trim().toLowerCase();
+      const name=String(body.name||'').trim(),school=String(body.school||'').trim();
+      if(!usernameRule.test(username)||username===ADMIN_USER||name.length<3||name.length>80||school.length>100)
+        return error(res,400,'Informe nome e usuario validos e unidade com ate 100 caracteres.');
+      try{
+        const updated=await userStore.update(id,{name,username,school});
+        if(!updated)return error(res,404,'Professor nao encontrado.');
+        invalidateTeacherSessions(id);
+        return sendJson(res,200,{teacher:updated});
+      }catch(err){if(err.code==='23505')return error(res,409,'Usuario ja cadastrado.');throw err;}
+    }
+    if(pathname==='/api/admin/teachers/delete'){
+      const id=String(body.id||'');
+      if(body.confirm!==true)return error(res,400,'Confirme a exclusao definitiva.');
+      // Preserve qualquer dado academico vinculado por chave estrangeira; nunca use CASCADE.
+      try{
+        if(!await userStore.remove(id))return error(res,404,'Professor nao encontrado.');
+        invalidateTeacherSessions(id);
+        return sendJson(res,200,{ok:true});
+      }catch(err){if(err.code==='23503')return error(res,409,'Professor possui registros academicos vinculados. Desative a conta para preservar o historico.');throw err;}
+    }
     if(pathname==='/api/admin/teachers/status' || pathname==='/api/admin/teachers/reset'){
       const id=String(body.id||'');
       const teacher=await userStore.byId(id);
