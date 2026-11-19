@@ -84,3 +84,5 @@ test('cada uma das tres guias tem conteudo exclusivo e formulario preservado',()
  assert.match(usuarios,/id="adminStudentEvents"/);
  assert.match(usuarios,/id="exportUsers"/);
 });
+
+test('teacher directory preserves identification space and compact CRUD actions without consult button',()=>{const render=js.slice(js.indexOf('function renderTeachers()'),js.indexOf('async function consultTeacher'));assert.match(html,/teacher-directory/);assert.match(render,/teacher-action-group/);assert.match(render,/action\('Editar'/);assert.match(render,/action\('Excluir'/);assert.match(render,/Redefinir senha/);assert.doesNotMatch(render,/action\('Consultar'/);});

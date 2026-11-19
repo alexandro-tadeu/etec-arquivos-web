@@ -28,13 +28,13 @@ function renderTeachers(){
     const tr=document.createElement('tr');
     for(const field of [t.name,t.username,t.school]){const td=document.createElement('td');td.textContent=field||'—';tr.append(td);}
     const status=document.createElement('td');status.textContent=t.active?'Ativo':'Inativo';status.className=t.active?'status-on':'status-off';tr.append(status);
-    const actions=document.createElement('td');actions.className='management-actions';
+    const actions=document.createElement('td');actions.className='teacher-row-actions';
     const toggle=document.createElement('button');toggle.className='minor';toggle.type='button';toggle.textContent=t.active?'Desativar':'Reativar';
     toggle.addEventListener('click',()=>changeStatus(t));
     const reset=document.createElement('button');reset.className='minor';reset.type='button';reset.textContent='Redefinir senha';reset.addEventListener('click',()=>resetPassword(t));
     const action=(label,handler)=>{const b=document.createElement('button');b.className='minor';b.type='button';b.textContent=label;b.addEventListener('click',handler);return b;};
-    const remove=action('Excluir',()=>deleteTeacher(t));remove.style.color='#b42318';
-    actions.append(action('Consultar',()=>consultTeacher(t)),action('Editar',()=>editTeacher(t)),toggle,reset,remove);tr.append(actions);tbody.append(tr);
+    const remove=action('Excluir',()=>deleteTeacher(t));remove.className='minor teacher-delete';
+    const group=document.createElement('div');group.className='teacher-action-group';group.append(action('Editar',()=>editTeacher(t)),toggle,reset,remove);actions.append(group);tr.append(actions);tbody.append(tr);
   }
 }
 async function consultTeacher(t){
