@@ -43,18 +43,28 @@
 .admin-tabs .tab:focus-visible{outline:3px solid #186cc7;outline-offset:-4px;}
 @media(max-width:600px){.admin-tabs{grid-template-columns:1fr}.admin-tabs .tab{padding:12px}}
 
-/* Cadastro: preservar espaço para identificação e manter ações compactas. */
+/* Cadastro: ações compactas em uma linha, sem alterar outras tabelas. */
 .teacher-directory{table-layout:fixed;min-width:800px;font-size:14px}
-.teacher-directory .teacher-name-col{width:26%}
-.teacher-directory .teacher-user-col{width:17%}
-.teacher-directory .teacher-school-col{width:13%}
-.teacher-directory .teacher-status-col{width:9%}
-.teacher-directory .teacher-actions-col{width:35%}
+.teacher-directory .teacher-name-col{width:30%}
+.teacher-directory .teacher-user-col{width:19%}
+.teacher-directory .teacher-school-col{width:18%}
+.teacher-directory .teacher-status-col{width:11%}
+.teacher-directory .teacher-actions-col{width:22%}
 .teacher-directory th,.teacher-directory td{padding:12px 8px;vertical-align:middle;overflow-wrap:anywhere}
 .teacher-directory tbody td:first-child{font-weight:600;color:#17324d;line-height:1.45}
 .teacher-directory tbody tr:hover{background:#f8fbfe}
-.teacher-action-group{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
-.teacher-directory .teacher-action-group button{width:100%;margin:0;min-height:34px;padding:6px 4px;font-size:12px;line-height:1.3;white-space:normal;border-radius:6px}
-.teacher-directory .teacher-delete{color:#b42318;border-color:#efc5c0;background:#fff}
-.teacher-directory .teacher-delete:hover{background:#fff1ef}
-@media(min-width:1200px){.teacher-directory .teacher-name-col{width:28%}.teacher-directory .teacher-user-col{width:17%}.teacher-directory .teacher-school-col{width:14%}.teacher-directory .teacher-status-col{width:9%}.teacher-directory .teacher-actions-col{width:32%}}
+.teacher-action-group{display:flex;align-items:center;gap:5px;flex-wrap:nowrap}
+.teacher-directory .teacher-icon-action{display:inline-flex;align-items:center;justify-content:center;flex:0 0 34px;width:34px;height:32px;padding:0;margin:0;border:1px solid transparent;border-radius:5px;cursor:pointer;box-shadow:0 1px 2px #102c4a22}
+.teacher-directory .teacher-icon-action::before{content:"";width:17px;height:17px;background:currentColor;mask:var(--teacher-icon) center/contain no-repeat;-webkit-mask:var(--teacher-icon) center/contain no-repeat}
+.teacher-directory .teacher-icon-edit{color:#35465a;background:linear-gradient(#fff,#e6ebf1);border-color:#cbd4de}
+.teacher-directory .teacher-icon-disable{color:#fff;background:linear-gradient(#e8a539,#bc760d);border-color:#b87512}
+.teacher-directory .teacher-icon-enable{color:#fff;background:linear-gradient(#4da86d,#27804b);border-color:#267c47}
+.teacher-directory .teacher-icon-reset{color:#fff;background:linear-gradient(#3188d6,#1462ad);border-color:#155e9d}
+.teacher-directory .teacher-icon-delete{color:#fff;background:linear-gradient(#e96a65,#c52e2e);border-color:#b92e2b}
+.teacher-directory .teacher-icon-action:hover{filter:brightness(.9)}
+.teacher-directory .teacher-icon-action:focus-visible{outline:2px solid #174b85;outline-offset:2px}
+.teacher-directory .teacher-icon-edit{--teacher-icon:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22m16%203%205%205-12%2012-6%201%201-6Z%22%2F%3E%3Cpath%20d%3D%22m13%206%205%205%22%2F%3E%3C%2Fsvg%3E")}
+.teacher-directory .teacher-icon-disable{--teacher-icon:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M9%205H6v14h3zM18%205h-3v14h3z%22%2F%3E%3C%2Fsvg%3E")}
+.teacher-directory .teacher-icon-enable{--teacher-icon:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22m8%205%2012%207-12%207Z%22%2F%3E%3C%2Fsvg%3E")}
+.teacher-directory .teacher-icon-reset{--teacher-icon:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Ccircle%20cx%3D%228%22%20cy%3D%229%22%20r%3D%225%22%2F%3E%3Cpath%20d%3D%22m12%2013%208%208m-4-4%203-3m0%206%203-3%22%2F%3E%3C%2Fsvg%3E")}
+.teacher-directory .teacher-icon-delete{--teacher-icon:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22m6%206%2012%2012M18%206%206%2018%22%2F%3E%3C%2Fsvg%3E")}
