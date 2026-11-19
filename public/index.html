@@ -13,7 +13,7 @@
   <div><strong>Cronômetro da sala: <span id="studentCountdown" role="timer">50:00</span></strong><p id="studentCountdownHint">Tempo controlado pelo professor. A renovação aparece automaticamente para todos.</p></div>
 </section>
 <div class="browserbar"><nav class="crumbs" id="breadcrumbs" aria-label="Pasta atual"></nav><button class="minor" id="refreshList" type="button">↻ Atualizar</button></div>
-<div class="uploadPanel"><label for="uploadFile" class="uploadLabel">Enviar atividade para a pasta atual</label><input id="uploadFile" type="file"><button id="uploadButton" class="primary small" type="button">⬆ Enviar arquivo</button><p class="hint">Limite de 40 MB. O arquivo será identificado pelo nome do aluno, data e hora; a extensão original será preservada.</p></div>
+<div class="uploadPanel"><label for="uploadFile" class="uploadLabel">Enviar atividade para a pasta atual</label><input id="uploadFile" type="file"><button id="uploadButton" class="primary small" type="button">⬆ Enviar arquivo</button><p class="hint" id="studentTransferLimit">Limite por arquivo: 40 MiB. Bloco de download: 768 KiB.</p><p class="hint">O arquivo será identificado pelo nome do aluno, data e hora; a extensão original será preservada.</p></div>
 <div id="files" class="filelist" aria-live="polite">Conectando…</div>
 <div class="progress hidden" id="progress" role="status"><strong id="progressLabel">Transferindo…</strong><div class="track"><div id="progressBar"></div></div><span id="progressValue">0%</span></div>
 </section><div id="message" class="flash hidden" role="alert"></div></main>

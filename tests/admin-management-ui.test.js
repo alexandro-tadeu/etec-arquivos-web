@@ -8,7 +8,7 @@ test('user tab and refresh hooks are installed even when old switch-to-teacher c
  const elements=new Map();
  function el(id){
   if(!elements.has(id)){
-   const s=new Set(['panelUsuarios','panelProfessores'].includes(id)?['hidden']:id==='tabCadastro'?['selected']:[]);
+   const s=new Set(['panelUsuarios','panelProfessores','panelTransfer'].includes(id)?['hidden']:id==='tabCadastro'?['selected']:[]);
    const node={
     id,children:[],handlers:new Map(),classList:{add:x=>s.add(x),remove:x=>s.delete(x),toggle:(x,on)=>on?s.add(x):s.delete(x),contains:x=>s.has(x)},
     setAttribute(){},addEventListener(name,cb){this.handlers.set(name,cb)},replaceChildren(){this.children=[]},
@@ -31,7 +31,7 @@ test('user tab and refresh hooks are installed even when old switch-to-teacher c
    requests.push(url);
    const value=url.endsWith('auth/me')?{role:'admin',storage:'postgres'}:
     url.endsWith('teachers/list')?{teachers:[{id:'t1',name:'Ana',username:'ana',school:'ETEC',active:true,online:true,activeRooms:1,roomsCreated:3}]}:
-    url.endsWith('teachers/users')?{rooms:[]}:{teachers:[]};
+    url.endsWith('teachers/users')?{rooms:[]}:url.endsWith('transfer/get')?{settings:{maxFileMiB:40,downloadBlockKiB:768}}:{teachers:[]};
    return {ok:true,json:async()=>value};
   }
  };
@@ -58,6 +58,12 @@ test('user tab and refresh hooks are installed even when old switch-to-teacher c
  assert.equal(el('panelCadastro').classList.contains('hidden'),true);
  for(let i=0;i<10;i++)await new Promise(resolve=>setImmediate(resolve));
  assert.equal(requests.filter(s=>s.endsWith('teachers/users')).length,1);
+ el('tabTransfer').handlers.get('click')();
+ assert.equal(el('panelTransfer').classList.contains('hidden'),false);
+ assert.equal(el('panelUsuarios').classList.contains('hidden'),true);
+ for(let i=0;i<10;i++)await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(el('transferMaxFile').value,'40');
+ assert.equal(el('transferBlock').value,'768');
  el('tabCadastro').handlers.get('click')();
  assert.equal(el('panelCadastro').classList.contains('hidden'),false);
  assert.equal(el('panelUsuarios').classList.contains('hidden'),true);
@@ -72,7 +78,7 @@ test('admin monitor APIs stay restricted to admin and share one teacher snapshot
   assert.ok(html.includes('id="'+name+'"'),name);
 });
 
-test('cada uma das tres guias tem conteudo exclusivo e formulario preservado',()=>{
+test('cada uma das guias tem conteudo exclusivo e formulario preservado',()=>{
  const cadastro=html.slice(html.indexOf('<section id="panelCadastro"'),html.indexOf('<section id="panelProfessores"'));
  const online=html.slice(html.indexOf('<section id="panelProfessores"'),html.indexOf('<section id="panelUsuarios"'));
  const usuarios=html.slice(html.indexOf('<section id="panelUsuarios"'));
